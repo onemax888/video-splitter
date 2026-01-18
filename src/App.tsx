@@ -11,6 +11,7 @@ import SplitModeSelector from './components/SplitModeSelector';
 import TimeRangeEditor, { TimeRange } from './components/TimeRangeEditor';
 import AppendMediaSelector from './components/AppendMediaSelector';
 import { AppendSource } from './types/append';
+import { SeekMode } from './types/seek';
 import { useVideoSplit } from './hooks/useVideoSplit';
 import './index.css';
 
@@ -35,6 +36,7 @@ function App() {
   const [timeRanges, setTimeRanges] = useState<TimeRange[]>([]);
   const [introSource, setIntroSource] = useState<AppendSource | null>(null);
   const [outroSource, setOutroSource] = useState<AppendSource | null>(null);
+  const [seekMode, setSeekMode] = useState<SeekMode>('balanced');
 
   const {
     videoInfo,
@@ -92,11 +94,13 @@ function App() {
 
     const intro = normalizeAppend(introSource);
     const outro = normalizeAppend(outroSource);
+    const hasAppend = !!intro || !!outro;
+    const effectiveSeekMode: SeekMode = hasAppend ? 'fast' : seekMode;
 
     if (splitMode === 'interval') {
       await splitVideo(selectedFile, outputDir, segmentDuration, intro, outro);
     } else {
-      await splitVideoByRanges(selectedFile, outputDir, timeRanges, intro, outro);
+      await splitVideoByRanges(selectedFile, outputDir, timeRanges, intro, outro, effectiveSeekMode);
     }
   };
 
@@ -127,6 +131,9 @@ function App() {
     }
     return true;
   };
+
+  const hasAppendSources = !!(introSource?.path || outroSource?.path);
+  const effectiveSeekMode: SeekMode = hasAppendSources ? 'fast' : seekMode;
 
   const canSplit = selectedFile && outputDir && videoInfo && !isProcessing && !isLoading &&
     isAppendReady(introSource) && isAppendReady(outroSource) &&
@@ -269,6 +276,73 @@ function App() {
               disabled={isProcessing}
             />
 
+            {splitMode === 'ranges' && (
+              <div className="space-y-2">
+                <div className="flex items-center space-x-4">
+                  <label className="text-sm font-medium text-slate-600 dark:text-slate-300 w-24">
+                    ⚡️ 速度/精度
+                  </label>
+                  <div className="flex rounded-lg overflow-hidden border border-slate-300 dark:border-slate-600">
+                    <button
+                      onClick={() => setSeekMode('accurate')}
+                      disabled={isProcessing || hasAppendSources}
+                      className={`
+                        px-4 py-2 text-sm font-medium transition-all duration-200
+                        ${effectiveSeekMode === 'accurate'
+                          ? 'bg-primary-600 text-white'
+                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                        }
+                        ${isProcessing || hasAppendSources ? 'opacity-50 cursor-not-allowed' : ''}
+                      `}
+                    >
+                      精确
+                    </button>
+                    <button
+                      onClick={() => setSeekMode('balanced')}
+                      disabled={isProcessing || hasAppendSources}
+                      className={`
+                        px-4 py-2 text-sm font-medium transition-all duration-200
+                        ${effectiveSeekMode === 'balanced'
+                          ? 'bg-primary-600 text-white'
+                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                        }
+                        ${isProcessing || hasAppendSources ? 'opacity-50 cursor-not-allowed' : ''}
+                      `}
+                    >
+                      平衡
+                    </button>
+                    <button
+                      onClick={() => setSeekMode('fast')}
+                      disabled={isProcessing || hasAppendSources}
+                      className={`
+                        px-4 py-2 text-sm font-medium transition-all duration-200
+                        ${effectiveSeekMode === 'fast'
+                          ? 'bg-primary-600 text-white'
+                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                        }
+                        ${isProcessing || hasAppendSources ? 'opacity-50 cursor-not-allowed' : ''}
+                      `}
+                    >
+                      快速
+                    </button>
+                  </div>
+                </div>
+                {effectiveSeekMode === 'fast' ? (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 pl-28">
+                    速度最快，切点可能有几秒偏差。
+                  </p>
+                ) : effectiveSeekMode === 'balanced' ? (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 pl-28">
+                    速度和准确度折中，通常偏差更小。
+                  </p>
+                ) : (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 pl-28">
+                    切点最准确，但处理速度较慢。
+                  </p>
+                )}
+              </div>
+            )}
+
             <AppendMediaSelector
               label="🎬 片头"
               value={introSource}
@@ -281,12 +355,6 @@ function App() {
               onChange={setOutroSource}
               disabled={isProcessing}
             />
-            {(introSource || outroSource) && (
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                开启片头/片尾会进行重新编码，速度会慢于无损切分。
-              </p>
-            )}
-
             {splitMode === 'interval' ? (
               <DurationInput
                 value={segmentDuration}
@@ -342,6 +410,8 @@ function App() {
         {result?.success && (
           <ResultList
             files={result.output_files}
+            totalElapsedMs={result.total_elapsed_ms}
+            segmentStats={result.segment_stats}
           />
         )}
 

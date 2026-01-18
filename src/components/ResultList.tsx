@@ -5,9 +5,14 @@ import VideoPlayer from './VideoPlayer';
 
 interface ResultListProps {
     files: string[];
+    totalElapsedMs?: number;
+    segmentStats?: {
+        file: string;
+        elapsed_ms: number | null;
+    }[];
 }
 
-const ResultList = ({ files }: ResultListProps) => {
+const ResultList = ({ files, totalElapsedMs, segmentStats }: ResultListProps) => {
     const [previewFile, setPreviewFile] = useState<string | null>(null);
     const [previewDuration, setPreviewDuration] = useState<number | null>(null);
     const [previewError, setPreviewError] = useState<string | null>(null);
@@ -27,6 +32,27 @@ const ResultList = ({ files }: ResultListProps) => {
     const getFileName = (path: string) => {
         return path.split('/').pop() || path;
     };
+
+    const formatElapsed = (ms: number | null | undefined) => {
+        if (ms === null || ms === undefined) {
+            return '—';
+        }
+        const totalSeconds = Math.max(ms, 0) / 1000;
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        if (hours > 0) {
+            return `${hours}h ${minutes}m ${seconds.toFixed(1)}s`;
+        }
+        if (minutes > 0) {
+            return `${minutes}m ${seconds.toFixed(1)}s`;
+        }
+        return `${seconds.toFixed(2)}s`;
+    };
+
+    const statsMap = new Map(
+        segmentStats?.map((stat) => [stat.file, stat.elapsed_ms]) ?? [],
+    );
 
     const handlePlayVideo = (filePath: string) => {
         setPreviewFile(filePath === previewFile ? null : filePath);
@@ -63,22 +89,27 @@ const ResultList = ({ files }: ResultListProps) => {
     return (
         <div className="w-full space-y-3">
             <div className="glass rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-3 gap-3">
                     <h3 className="text-sm font-medium text-green-600 dark:text-green-400 flex items-center gap-2">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                         输出文件 ({files.length} 个)
                     </h3>
-                    <button
-                        onClick={handleOpenFolder}
-                        className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-500 dark:hover:text-primary-300 transition-colors flex items-center gap-1"
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
-                        打开文件夹
-                    </button>
+                    <div className="flex items-center gap-3">
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                            总耗时: {formatElapsed(totalElapsedMs)}
+                        </div>
+                        <button
+                            onClick={handleOpenFolder}
+                            className="text-xs text-primary-600 dark:text-primary-400 hover:text-primary-500 dark:hover:text-primary-300 transition-colors flex items-center gap-1"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                            打开文件夹
+                        </button>
+                    </div>
                 </div>
 
                 <div className="max-h-48 overflow-y-auto space-y-1">
@@ -103,14 +134,19 @@ const ResultList = ({ files }: ResultListProps) => {
                                     {getFileName(file)}
                                 </span>
                             </div>
-                            <button
-                                className="flex-shrink-0 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
-                                title="播放预览"
-                            >
-                                <svg className="w-4 h-4 text-primary-500" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M8 5v14l11-7z" />
-                                </svg>
-                            </button>
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                                <span className="text-xs text-slate-400">
+                                    {formatElapsed(statsMap.get(file))}
+                                </span>
+                                <button
+                                    className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
+                                    title="播放预览"
+                                >
+                                    <svg className="w-4 h-4 text-primary-500" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M8 5v14l11-7z" />
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
                     ))}
                 </div>

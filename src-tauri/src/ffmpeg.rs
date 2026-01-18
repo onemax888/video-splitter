@@ -30,6 +30,14 @@ pub struct SplitResult {
     pub success: bool,
     pub output_files: Vec<String>,
     pub error: Option<String>,
+    pub total_elapsed_ms: u64,
+    pub segment_stats: Vec<SegmentStat>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SegmentStat {
+    pub file: String,
+    pub elapsed_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -48,6 +56,16 @@ pub enum AppendKind {
     Image,
     Video,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum SeekMode {
+    Accurate,
+    Fast,
+    Balanced,
+}
+
+const BALANCED_PAD_SECONDS: f64 = 2.0;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -803,6 +821,15 @@ pub fn format_duration(seconds: f64) -> String {
     format!("{:02}:{:02}:{:02}", hours, minutes, secs)
 }
 
+fn elapsed_ms(start: Instant) -> u64 {
+    let elapsed = start.elapsed().as_millis();
+    if elapsed > u64::MAX as u128 {
+        u64::MAX
+    } else {
+        elapsed as u64
+    }
+}
+
 fn build_ranges_from_interval(total_duration: f64, segment_duration: u32) -> Vec<TimeRange> {
     if segment_duration == 0 || total_duration <= 0.0 {
         return Vec::new();
@@ -844,6 +871,7 @@ pub async fn split_video_with_append(
     intro: Option<AppendSource>,
     outro: Option<AppendSource>,
 ) -> Result<SplitResult, String> {
+    let overall_start = Instant::now();
     let ranges = if let Some(ranges) = ranges {
         ranges
     } else {
@@ -877,6 +905,7 @@ pub async fn split_video_with_append(
 
     let total_segments = ranges.len() as u32;
     let mut output_files = Vec::new();
+    let mut segment_stats = Vec::new();
 
     for (i, range) in ranges.iter().enumerate() {
         let segment_len = range.end_seconds - range.start_seconds;
@@ -895,6 +924,7 @@ pub async fn split_video_with_append(
         let output_file = format!("{}/{}_{:03}.{}", output_dir, stem, i, extension);
         let start_time = format!("{:.3}", range.start_seconds);
         let duration_str = format!("{:.3}", segment_len);
+        let segment_start = Instant::now();
 
         let mut args: Vec<String> = vec!["-y".to_string()];
         let mut pairs: Vec<(String, String)> = Vec::new();
@@ -1008,7 +1038,11 @@ pub async fn split_video_with_append(
         }
 
         if std::path::Path::new(&output_file).exists() {
-            output_files.push(output_file);
+            output_files.push(output_file.clone());
+            segment_stats.push(SegmentStat {
+                file: output_file,
+                elapsed_ms: Some(elapsed_ms(segment_start)),
+            });
         }
     }
 
@@ -1024,6 +1058,8 @@ pub async fn split_video_with_append(
         success: true,
         output_files,
         error: None,
+        total_elapsed_ms: elapsed_ms(overall_start),
+        segment_stats,
     })
 }
 
@@ -1033,6 +1069,7 @@ pub async fn split_video(
     output_dir: &str,
     segment_duration: u32,
 ) -> Result<SplitResult, String> {
+    let overall_start = Instant::now();
     let total_duration = get_video_duration(app_handle, input_path).await?;
     let total_segments = (total_duration / segment_duration as f64).ceil() as u32;
 
@@ -1100,6 +1137,14 @@ pub async fn split_video(
         }
     }
 
+    let segment_stats = output_files
+        .iter()
+        .map(|file| SegmentStat {
+            file: file.clone(),
+            elapsed_ms: None,
+        })
+        .collect::<Vec<_>>();
+
     let final_progress = SplitProgress {
         current_segment: output_files.len() as u32,
         total_segments: output_files.len() as u32,
@@ -1112,6 +1157,8 @@ pub async fn split_video(
         success: true,
         output_files,
         error: None,
+        total_elapsed_ms: elapsed_ms(overall_start),
+        segment_stats,
     })
 }
 
@@ -1126,7 +1173,9 @@ pub async fn split_video_by_ranges(
     input_path: &str,
     output_dir: &str,
     ranges: Vec<TimeRange>,
+    seek_mode: SeekMode,
 ) -> Result<SplitResult, String> {
+    let overall_start = Instant::now();
     let path = std::path::Path::new(input_path);
     let stem = path
         .file_stem()
@@ -1139,8 +1188,14 @@ pub async fn split_video_by_ranges(
 
     let total_segments = ranges.len() as u32;
     let mut output_files = Vec::new();
+    let mut segment_stats = Vec::new();
 
     for (i, range) in ranges.iter().enumerate() {
+        let segment_len = range.end_seconds - range.start_seconds;
+        if segment_len <= 0.0 {
+            return Err(format!("片段时长无效: {}", segment_len));
+        }
+
         let progress = SplitProgress {
             current_segment: i as u32 + 1,
             total_segments,
@@ -1152,37 +1207,76 @@ pub async fn split_video_by_ranges(
         let output_file = format!("{}/{}_{:03}.{}", output_dir, stem, i, extension);
         let start_time = format!("{:.3}", range.start_seconds);
         let end_time = format!("{:.3}", range.end_seconds);
+        let duration_str = format!("{:.3}", segment_len);
+        let segment_start = Instant::now();
+
+        let mut args: Vec<String> = vec!["-y".to_string()];
+
+        match seek_mode {
+            SeekMode::Fast => {
+                args.extend([
+                    "-ss".to_string(),
+                    start_time,
+                    "-t".to_string(),
+                    duration_str,
+                    "-i".to_string(),
+                    input_path.to_string(),
+                ]);
+            }
+            SeekMode::Balanced => {
+                let pre_seek = (range.start_seconds - BALANCED_PAD_SECONDS).max(0.0);
+                let post_seek = range.start_seconds - pre_seek;
+                let pre_seek_str = format!("{:.3}", pre_seek);
+                let post_seek_str = format!("{:.3}", post_seek);
+
+                args.extend([
+                    "-ss".to_string(),
+                    pre_seek_str,
+                    "-i".to_string(),
+                    input_path.to_string(),
+                    "-ss".to_string(),
+                    post_seek_str,
+                    "-t".to_string(),
+                    duration_str,
+                ]);
+            }
+            SeekMode::Accurate => {
+                args.extend([
+                    "-i".to_string(),
+                    input_path.to_string(),
+                    "-ss".to_string(),
+                    start_time,
+                    "-to".to_string(),
+                    end_time,
+                ]);
+            }
+        }
+
+        args.extend([
+            "-map".to_string(),
+            "0".to_string(),
+            "-c:v".to_string(),
+            "libx264".to_string(),
+            "-c:a".to_string(),
+            "aac".to_string(),
+            "-c:s".to_string(),
+            "copy".to_string(),
+            "-c:d".to_string(),
+            "copy".to_string(),
+            "-preset".to_string(),
+            "veryfast".to_string(),
+            "-crf".to_string(),
+            "18".to_string(),
+            "-reset_timestamps".to_string(),
+            "1".to_string(),
+            output_file.clone(),
+        ]);
 
         let output = app_handle
             .shell()
             .sidecar("ffmpeg")
             .map_err(|e| format!("Failed to locate ffmpeg sidecar: {}", e))?
-            .args([
-                "-y",
-                "-i",
-                input_path,
-                "-ss",
-                &start_time,
-                "-to",
-                &end_time,
-                "-map",
-                "0",
-                "-c:v",
-                "libx264",
-                "-c:a",
-                "aac",
-                "-c:s",
-                "copy",
-                "-c:d",
-                "copy",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "18",
-                "-reset_timestamps",
-                "1",
-                &output_file,
-            ])
+            .args(args)
             .output()
             .await
             .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
@@ -1193,7 +1287,11 @@ pub async fn split_video_by_ranges(
         }
 
         if std::path::Path::new(&output_file).exists() {
-            output_files.push(output_file);
+            output_files.push(output_file.clone());
+            segment_stats.push(SegmentStat {
+                file: output_file,
+                elapsed_ms: Some(elapsed_ms(segment_start)),
+            });
         }
     }
 
@@ -1209,5 +1307,7 @@ pub async fn split_video_by_ranges(
         success: true,
         output_files,
         error: None,
+        total_elapsed_ms: elapsed_ms(overall_start),
+        segment_stats,
     })
 }

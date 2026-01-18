@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { AppendSource } from '../types/append';
+import { SeekMode } from '../types/seek';
 
 interface VideoInfo {
     path: string;
@@ -22,6 +23,11 @@ interface SplitResult {
     success: boolean;
     output_files: string[];
     error: string | null;
+    total_elapsed_ms?: number;
+    segment_stats?: {
+        file: string;
+        elapsed_ms: number | null;
+    }[];
 }
 
 interface TimeRange {
@@ -105,6 +111,7 @@ export function useVideoSplit() {
         ranges: TimeRange[],
         intro?: AppendSource | null,
         outro?: AppendSource | null,
+        seekMode: SeekMode = 'accurate',
     ) => {
         setIsProcessing(true);
         setError(null);
@@ -127,6 +134,7 @@ export function useVideoSplit() {
                 ranges: rangesPayload,
                 intro,
                 outro,
+                seekMode,
             });
             setResult(splitResult);
         } catch (err) {
