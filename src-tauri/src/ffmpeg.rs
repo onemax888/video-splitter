@@ -42,6 +42,30 @@ pub struct FFmpegStatus {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum AppendKind {
+    Image,
+    Video,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AppendSource {
+    pub kind: AppendKind,
+    pub path: String,
+    pub duration_seconds: Option<f64>,
+}
+
+struct MediaParams {
+    width: u32,
+    height: u32,
+    fps: f64,
+    sample_rate: u32,
+    channels: u32,
+    has_audio: bool,
+}
+
 fn get_os_info() -> String {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
@@ -128,6 +152,348 @@ pub async fn get_video_duration(app_handle: &AppHandle, path: &str) -> Result<f6
         .trim()
         .parse::<f64>()
         .map_err(|e| format!("Failed to parse duration: {}", e))
+}
+
+fn parse_fraction(value: &str) -> Option<f64> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = trimmed.split('/').collect();
+    if parts.len() == 2 {
+        let numerator: f64 = parts[0].parse().ok()?;
+        let denominator: f64 = parts[1].parse().ok()?;
+        if denominator == 0.0 {
+            return None;
+        }
+        return Some(numerator / denominator);
+    }
+    trimmed.parse::<f64>().ok()
+}
+
+fn channel_layout(channels: u32) -> &'static str {
+    match channels {
+        1 => "mono",
+        2 => "stereo",
+        4 => "quad",
+        6 => "5.1",
+        8 => "7.1",
+        _ => "stereo",
+    }
+}
+
+fn scale_filter(width: u32, height: u32) -> String {
+    format!(
+        "scale={}:{}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
+        width, height, width, height
+    )
+}
+
+async fn probe_media_params(app_handle: &AppHandle, path: &str) -> Result<MediaParams, String> {
+    let output = app_handle
+        .shell()
+        .sidecar("ffprobe")
+        .map_err(|e| format!("Failed to locate ffprobe sidecar: {}", e))?
+        .args([
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_streams",
+            path,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("ffprobe failed: {}", stderr));
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Failed to parse ffprobe output: {}", e))?;
+    let streams = value
+        .get("streams")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "ffprobe output missing streams".to_string())?;
+
+    let video_stream = streams.iter().find(|s| {
+        s.get("codec_type")
+            .and_then(|v| v.as_str())
+            .map(|t| t == "video")
+            .unwrap_or(false)
+    });
+
+    let video_stream = video_stream.ok_or_else(|| "No video stream found".to_string())?;
+    let width = video_stream
+        .get("width")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| "Failed to read video width".to_string())? as u32;
+    let height = video_stream
+        .get("height")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| "Failed to read video height".to_string())? as u32;
+    let fps_value = video_stream
+        .get("avg_frame_rate")
+        .and_then(|v| v.as_str())
+        .and_then(parse_fraction)
+        .or_else(|| {
+            video_stream
+                .get("r_frame_rate")
+                .and_then(|v| v.as_str())
+                .and_then(parse_fraction)
+        })
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .unwrap_or(30.0);
+
+    let audio_stream = streams.iter().find(|s| {
+        s.get("codec_type")
+            .and_then(|v| v.as_str())
+            .map(|t| t == "audio")
+            .unwrap_or(false)
+    });
+
+    let has_audio = audio_stream.is_some();
+    let sample_rate = audio_stream
+        .and_then(|s| s.get("sample_rate"))
+        .and_then(|v| v.as_str())
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(48_000);
+    let channels = audio_stream
+        .and_then(|s| s.get("channels"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2) as u32;
+
+    Ok(MediaParams {
+        width,
+        height,
+        fps: fps_value,
+        sample_rate,
+        channels,
+        has_audio,
+    })
+}
+
+async fn probe_has_audio(app_handle: &AppHandle, path: &str) -> Result<bool, String> {
+    let output = app_handle
+        .shell()
+        .sidecar("ffprobe")
+        .map_err(|e| format!("Failed to locate ffprobe sidecar: {}", e))?
+        .args([
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=channels",
+            path,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("ffprobe failed: {}", stderr));
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Failed to parse ffprobe output: {}", e))?;
+    let streams = value.get("streams").and_then(|v| v.as_array());
+    Ok(streams.map_or(false, |s| !s.is_empty()))
+}
+
+fn append_cache_key(source: &AppendSource, params: &MediaParams) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.path.hash(&mut hasher);
+    source.kind.hash(&mut hasher);
+    if let Some(duration) = source.duration_seconds {
+        duration.to_bits().hash(&mut hasher);
+    }
+    params.width.hash(&mut hasher);
+    params.height.hash(&mut hasher);
+    params.sample_rate.hash(&mut hasher);
+    params.channels.hash(&mut hasher);
+    params.fps.to_bits().hash(&mut hasher);
+
+    if let Ok(metadata) = std::fs::metadata(&source.path) {
+        metadata.len().hash(&mut hasher);
+        if let Ok(modified) = metadata.modified() {
+            if let Ok(duration) = modified.duration_since(SystemTime::UNIX_EPOCH) {
+                duration.as_secs().hash(&mut hasher);
+                duration.subsec_nanos().hash(&mut hasher);
+            }
+        }
+    }
+
+    hasher.finish()
+}
+
+async fn normalize_append_source(
+    app_handle: &AppHandle,
+    source: &AppendSource,
+    params: &MediaParams,
+) -> Result<String, String> {
+    let source_path = Path::new(&source.path);
+    if !source_path.exists() {
+        return Err(format!("片头/片尾文件不存在: {}", source.path));
+    }
+
+    let cache_key = append_cache_key(source, params);
+    let cache_dir = std::env::temp_dir()
+        .join("video-splitter-append")
+        .join(format!("{cache_key}"));
+    std::fs::create_dir_all(&cache_dir)
+        .map_err(|e| format!("Failed to create append cache dir: {}", e))?;
+    let output_path = cache_dir.join("normalized.mp4");
+
+    if output_path.exists() {
+        return Ok(output_path.to_string_lossy().to_string());
+    }
+
+    let fps = if params.fps.is_finite() && params.fps > 0.0 {
+        params.fps
+    } else {
+        30.0
+    };
+    let fps_str = format!("{:.3}", fps);
+    let scale = scale_filter(params.width, params.height);
+    let sample_rate = params.sample_rate;
+    let channels = params.channels;
+    let channel_layout = channel_layout(channels);
+    let audio_source = format!(
+        "anullsrc=channel_layout={}:sample_rate={}",
+        channel_layout, sample_rate
+    );
+
+    let mut args: Vec<String> = vec!["-y".to_string()];
+
+    match source.kind {
+        AppendKind::Image => {
+            let duration = source
+                .duration_seconds
+                .ok_or_else(|| "图片片头/片尾需要设置时长".to_string())?;
+            if duration <= 0.0 {
+                return Err("图片片头/片尾时长必须大于 0".to_string());
+            }
+            let duration_str = format!("{:.3}", duration);
+
+            args.extend([
+                "-loop".to_string(),
+                "1".to_string(),
+                "-t".to_string(),
+                duration_str.clone(),
+                "-i".to_string(),
+                source.path.clone(),
+                "-f".to_string(),
+                "lavfi".to_string(),
+                "-t".to_string(),
+                duration_str,
+                "-i".to_string(),
+                audio_source,
+                "-shortest".to_string(),
+                "-r".to_string(),
+                fps_str.clone(),
+                "-vf".to_string(),
+                scale,
+                "-map".to_string(),
+                "0:v:0".to_string(),
+                "-map".to_string(),
+                "1:a:0".to_string(),
+                "-c:v".to_string(),
+                "libx264".to_string(),
+                "-preset".to_string(),
+                "veryfast".to_string(),
+                "-crf".to_string(),
+                "18".to_string(),
+                "-c:a".to_string(),
+                "aac".to_string(),
+                "-b:a".to_string(),
+                "192k".to_string(),
+                "-ar".to_string(),
+                sample_rate.to_string(),
+                "-ac".to_string(),
+                channels.to_string(),
+                "-pix_fmt".to_string(),
+                "yuv420p".to_string(),
+                output_path.to_string_lossy().to_string(),
+            ]);
+        }
+        AppendKind::Video => {
+            let has_audio = probe_has_audio(app_handle, &source.path).await?;
+
+            args.extend(["-i".to_string(), source.path.clone()]);
+            if !has_audio {
+                args.extend([
+                    "-f".to_string(),
+                    "lavfi".to_string(),
+                    "-i".to_string(),
+                    audio_source,
+                ]);
+            }
+
+            args.extend([
+                "-r".to_string(),
+                fps_str,
+                "-vf".to_string(),
+                scale,
+                "-c:v".to_string(),
+                "libx264".to_string(),
+                "-preset".to_string(),
+                "veryfast".to_string(),
+                "-crf".to_string(),
+                "18".to_string(),
+                "-c:a".to_string(),
+                "aac".to_string(),
+                "-b:a".to_string(),
+                "192k".to_string(),
+                "-ar".to_string(),
+                sample_rate.to_string(),
+                "-ac".to_string(),
+                channels.to_string(),
+                "-pix_fmt".to_string(),
+                "yuv420p".to_string(),
+            ]);
+
+            if has_audio {
+                args.extend([
+                    "-map".to_string(),
+                    "0:v:0".to_string(),
+                    "-map".to_string(),
+                    "0:a:0?".to_string(),
+                ]);
+            } else {
+                args.extend([
+                    "-map".to_string(),
+                    "0:v:0".to_string(),
+                    "-map".to_string(),
+                    "1:a:0".to_string(),
+                    "-shortest".to_string(),
+                ]);
+            }
+
+            args.push(output_path.to_string_lossy().to_string());
+        }
+    }
+
+    let output = app_handle
+        .shell()
+        .sidecar("ffmpeg")
+        .map_err(|e| format!("Failed to locate ffmpeg sidecar: {}", e))?
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("FFmpeg failed: {}", stderr));
+    }
+
+    Ok(output_path.to_string_lossy().to_string())
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -435,6 +801,230 @@ pub fn format_duration(seconds: f64) -> String {
     let minutes = ((seconds % 3600.0) / 60.0).floor() as u32;
     let secs = (seconds % 60.0).floor() as u32;
     format!("{:02}:{:02}:{:02}", hours, minutes, secs)
+}
+
+fn build_ranges_from_interval(total_duration: f64, segment_duration: u32) -> Vec<TimeRange> {
+    if segment_duration == 0 || total_duration <= 0.0 {
+        return Vec::new();
+    }
+
+    let segment = segment_duration as f64;
+    let mut ranges = Vec::new();
+    let mut start = 0.0;
+    while start < total_duration {
+        let end = (start + segment).min(total_duration);
+        ranges.push(TimeRange {
+            start_seconds: start,
+            end_seconds: end,
+        });
+        start = end;
+    }
+    ranges
+}
+
+fn build_concat_filter(pairs: &[(String, String)]) -> String {
+    let mut filter = String::new();
+    for (video, audio) in pairs {
+        filter.push_str(video);
+        filter.push_str(audio);
+    }
+    filter.push_str(&format!(
+        "concat=n={}:v=1:a=1[outv][outa]",
+        pairs.len()
+    ));
+    filter
+}
+
+pub async fn split_video_with_append(
+    app_handle: &AppHandle,
+    input_path: &str,
+    output_dir: &str,
+    segment_duration: u32,
+    ranges: Option<Vec<TimeRange>>,
+    intro: Option<AppendSource>,
+    outro: Option<AppendSource>,
+) -> Result<SplitResult, String> {
+    let ranges = if let Some(ranges) = ranges {
+        ranges
+    } else {
+        let total_duration = get_video_duration(app_handle, input_path).await?;
+        build_ranges_from_interval(total_duration, segment_duration)
+    };
+
+    if ranges.is_empty() {
+        return Err("没有可用的切分范围".to_string());
+    }
+
+    let params = probe_media_params(app_handle, input_path).await?;
+    let intro_path = match intro.as_ref() {
+        Some(source) => Some(normalize_append_source(app_handle, source, &params).await?),
+        None => None,
+    };
+    let outro_path = match outro.as_ref() {
+        Some(source) => Some(normalize_append_source(app_handle, source, &params).await?),
+        None => None,
+    };
+
+    let path = std::path::Path::new(input_path);
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("video");
+    let extension = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("mp4");
+
+    let total_segments = ranges.len() as u32;
+    let mut output_files = Vec::new();
+
+    for (i, range) in ranges.iter().enumerate() {
+        let segment_len = range.end_seconds - range.start_seconds;
+        if segment_len <= 0.0 {
+            return Err(format!("片段时长无效: {}", segment_len));
+        }
+
+        let progress = SplitProgress {
+            current_segment: i as u32 + 1,
+            total_segments,
+            percentage: ((i as f64) / (total_segments as f64)) * 100.0,
+            current_file: format!("正在切分片段 {}/{}...", i + 1, total_segments),
+        };
+        let _ = app_handle.emit("split-progress", &progress);
+
+        let output_file = format!("{}/{}_{:03}.{}", output_dir, stem, i, extension);
+        let start_time = format!("{:.3}", range.start_seconds);
+        let duration_str = format!("{:.3}", segment_len);
+
+        let mut args: Vec<String> = vec!["-y".to_string()];
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        let mut input_index = 0;
+
+        if let Some(intro_file) = intro_path.as_ref() {
+            args.extend(["-i".to_string(), intro_file.clone()]);
+            pairs.push((
+                format!("[{}:v]", input_index),
+                format!("[{}:a]", input_index),
+            ));
+            input_index += 1;
+        }
+
+        args.extend([
+            "-ss".to_string(),
+            start_time,
+            "-t".to_string(),
+            duration_str.clone(),
+            "-i".to_string(),
+            input_path.to_string(),
+        ]);
+        let main_index = input_index;
+        input_index += 1;
+
+        let mut silent_audio_index = None;
+        if !params.has_audio {
+            let audio_source = format!(
+                "anullsrc=channel_layout={}:sample_rate={}",
+                channel_layout(params.channels),
+                params.sample_rate
+            );
+            args.extend([
+                "-f".to_string(),
+                "lavfi".to_string(),
+                "-t".to_string(),
+                duration_str,
+                "-i".to_string(),
+                audio_source,
+            ]);
+            silent_audio_index = Some(input_index);
+            input_index += 1;
+        }
+
+        let audio_index = if params.has_audio {
+            main_index
+        } else {
+            silent_audio_index.ok_or_else(|| "Failed to build silent audio".to_string())?
+        };
+        pairs.push((
+            format!("[{}:v]", main_index),
+            format!("[{}:a]", audio_index),
+        ));
+
+        if let Some(outro_file) = outro_path.as_ref() {
+            args.extend(["-i".to_string(), outro_file.clone()]);
+            pairs.push((
+                format!("[{}:v]", input_index),
+                format!("[{}:a]", input_index),
+            ));
+        }
+
+        let filter = build_concat_filter(&pairs);
+
+        let fps = if params.fps.is_finite() && params.fps > 0.0 {
+            params.fps
+        } else {
+            30.0
+        };
+
+        args.extend([
+            "-filter_complex".to_string(),
+            filter,
+            "-map".to_string(),
+            "[outv]".to_string(),
+            "-map".to_string(),
+            "[outa]".to_string(),
+            "-c:v".to_string(),
+            "libx264".to_string(),
+            "-preset".to_string(),
+            "veryfast".to_string(),
+            "-crf".to_string(),
+            "18".to_string(),
+            "-c:a".to_string(),
+            "aac".to_string(),
+            "-b:a".to_string(),
+            "192k".to_string(),
+            "-ar".to_string(),
+            params.sample_rate.to_string(),
+            "-ac".to_string(),
+            params.channels.to_string(),
+            "-r".to_string(),
+            format!("{:.3}", fps),
+            "-pix_fmt".to_string(),
+            "yuv420p".to_string(),
+            output_file.clone(),
+        ]);
+
+        let output = app_handle
+            .shell()
+            .sidecar("ffmpeg")
+            .map_err(|e| format!("Failed to locate ffmpeg sidecar: {}", e))?
+            .args(args)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("FFmpeg failed on segment {}: {}", i + 1, stderr));
+        }
+
+        if std::path::Path::new(&output_file).exists() {
+            output_files.push(output_file);
+        }
+    }
+
+    let final_progress = SplitProgress {
+        current_segment: total_segments,
+        total_segments,
+        percentage: 100.0,
+        current_file: "完成".to_string(),
+    };
+    let _ = app_handle.emit("split-progress", &final_progress);
+
+    Ok(SplitResult {
+        success: true,
+        output_files,
+        error: None,
+    })
 }
 
 pub async fn split_video(

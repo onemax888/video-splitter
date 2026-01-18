@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { AppendSource } from '../types/append';
 
 interface VideoInfo {
     path: string;
@@ -68,14 +69,16 @@ export function useVideoSplit() {
     const splitVideo = useCallback(async (
         inputPath: string,
         outputDir: string,
-        segmentDuration: number
+        segmentDuration: number,
+        intro?: AppendSource | null,
+        outro?: AppendSource | null,
     ) => {
         setIsProcessing(true);
         setError(null);
         setResult(null);
         setProgress({
             current_segment: 0,
-            total_segments: Math.ceil(videoInfo?.duration || 0 / segmentDuration),
+            total_segments: Math.ceil((videoInfo?.duration || 0) / segmentDuration),
             percentage: 0,
             current_file: '准备中...',
         });
@@ -85,6 +88,8 @@ export function useVideoSplit() {
                 inputPath,
                 outputDir,
                 segmentDuration,
+                intro,
+                outro,
             });
             setResult(splitResult);
         } catch (err) {
@@ -97,7 +102,9 @@ export function useVideoSplit() {
     const splitVideoByRanges = useCallback(async (
         inputPath: string,
         outputDir: string,
-        ranges: TimeRange[]
+        ranges: TimeRange[],
+        intro?: AppendSource | null,
+        outro?: AppendSource | null,
     ) => {
         setIsProcessing(true);
         setError(null);
@@ -118,6 +125,8 @@ export function useVideoSplit() {
                 inputPath,
                 outputDir,
                 ranges: rangesPayload,
+                intro,
+                outro,
             });
             setResult(splitResult);
         } catch (err) {

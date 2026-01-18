@@ -9,6 +9,8 @@ import ThemeToggle from './components/ThemeToggle';
 import VideoPlayer from './components/VideoPlayer';
 import SplitModeSelector from './components/SplitModeSelector';
 import TimeRangeEditor, { TimeRange } from './components/TimeRangeEditor';
+import AppendMediaSelector from './components/AppendMediaSelector';
+import { AppendSource } from './types/append';
 import { useVideoSplit } from './hooks/useVideoSplit';
 import './index.css';
 
@@ -31,6 +33,8 @@ function App() {
   const [isCheckingFfmpeg, setIsCheckingFfmpeg] = useState(false);
   const [splitMode, setSplitMode] = useState<'interval' | 'ranges'>('ranges');
   const [timeRanges, setTimeRanges] = useState<TimeRange[]>([]);
+  const [introSource, setIntroSource] = useState<AppendSource | null>(null);
+  const [outroSource, setOutroSource] = useState<AppendSource | null>(null);
 
   const {
     videoInfo,
@@ -78,10 +82,21 @@ function App() {
   const handleSplit = async () => {
     if (!selectedFile || !outputDir) return;
 
+    const normalizeAppend = (source: AppendSource | null) => {
+      if (!source || !source.path) return null;
+      if (source.kind === 'image' && (!source.durationSeconds || source.durationSeconds <= 0)) {
+        return null;
+      }
+      return source;
+    };
+
+    const intro = normalizeAppend(introSource);
+    const outro = normalizeAppend(outroSource);
+
     if (splitMode === 'interval') {
-      await splitVideo(selectedFile, outputDir, segmentDuration);
+      await splitVideo(selectedFile, outputDir, segmentDuration, intro, outro);
     } else {
-      await splitVideoByRanges(selectedFile, outputDir, timeRanges);
+      await splitVideoByRanges(selectedFile, outputDir, timeRanges, intro, outro);
     }
   };
 
@@ -104,7 +119,17 @@ function App() {
     }
   };
 
+  const isAppendReady = (source: AppendSource | null) => {
+    if (!source) return true;
+    if (!source.path) return false;
+    if (source.kind === 'image') {
+      return !!source.durationSeconds && source.durationSeconds > 0;
+    }
+    return true;
+  };
+
   const canSplit = selectedFile && outputDir && videoInfo && !isProcessing && !isLoading &&
+    isAppendReady(introSource) && isAppendReady(outroSource) &&
     (splitMode === 'interval' ? segmentDuration > 0 : timeRanges.length > 0);
 
   return (
@@ -243,6 +268,24 @@ function App() {
               onChange={setSplitMode}
               disabled={isProcessing}
             />
+
+            <AppendMediaSelector
+              label="🎬 片头"
+              value={introSource}
+              onChange={setIntroSource}
+              disabled={isProcessing}
+            />
+            <AppendMediaSelector
+              label="🎬 片尾"
+              value={outroSource}
+              onChange={setOutroSource}
+              disabled={isProcessing}
+            />
+            {(introSource || outroSource) && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                开启片头/片尾会进行重新编码，速度会慢于无损切分。
+              </p>
+            )}
 
             {splitMode === 'interval' ? (
               <DurationInput

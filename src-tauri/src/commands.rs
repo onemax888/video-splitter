@@ -1,4 +1,4 @@
-use crate::ffmpeg::{check_ffmpeg, format_duration, get_video_duration, prepare_hls_source, PreviewSource, split_video, split_video_by_ranges, FFmpegStatus, SplitResult, TimeRange, VideoInfo};
+use crate::ffmpeg::{check_ffmpeg, format_duration, get_video_duration, prepare_hls_source, split_video, split_video_by_ranges, split_video_with_append, AppendSource, PreviewSource, FFmpegStatus, SplitResult, TimeRange, VideoInfo};
 use tauri::{AppHandle, Manager};
 
 #[tauri::command]
@@ -37,8 +37,23 @@ pub async fn split_video_command(
     input_path: String,
     output_dir: String,
     segment_duration: u32,
+    intro: Option<AppendSource>,
+    outro: Option<AppendSource>,
 ) -> Result<SplitResult, String> {
-    split_video(&app_handle, &input_path, &output_dir, segment_duration).await
+    if intro.is_none() && outro.is_none() {
+        split_video(&app_handle, &input_path, &output_dir, segment_duration).await
+    } else {
+        split_video_with_append(
+            &app_handle,
+            &input_path,
+            &output_dir,
+            segment_duration,
+            None,
+            intro,
+            outro,
+        )
+        .await
+    }
 }
 
 #[tauri::command]
@@ -47,8 +62,23 @@ pub async fn split_video_by_ranges_command(
     input_path: String,
     output_dir: String,
     ranges: Vec<TimeRange>,
+    intro: Option<AppendSource>,
+    outro: Option<AppendSource>,
 ) -> Result<SplitResult, String> {
-    split_video_by_ranges(&app_handle, &input_path, &output_dir, ranges).await
+    if intro.is_none() && outro.is_none() {
+        split_video_by_ranges(&app_handle, &input_path, &output_dir, ranges).await
+    } else {
+        split_video_with_append(
+            &app_handle,
+            &input_path,
+            &output_dir,
+            0,
+            Some(ranges),
+            intro,
+            outro,
+        )
+        .await
+    }
 }
 
 #[tauri::command]
