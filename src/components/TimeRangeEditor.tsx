@@ -236,8 +236,31 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
     };
 
     const batchPreview = useMemo(() => parseBatchText(batchText), [batchText, batchOptions, duration]);
-    const invalidCount = batchPreview.filter((item) => item.error).length;
-    const validCount = batchPreview.filter((item) => !item.error && item.startSeconds !== null && item.endSeconds !== null).length;
+    const validRanges = useMemo(
+        () => batchPreview
+            .filter((item) => !item.error && item.startSeconds !== null && item.endSeconds !== null)
+            .map((item) => ({
+                startSeconds: item.startSeconds as number,
+                endSeconds: item.endSeconds as number,
+            })),
+        [batchPreview]
+    );
+    const validCount = validRanges.length;
+    const invalidCount = Math.max(0, batchPreview.length - validCount);
+    const uniqueRanges = useMemo(() => {
+        const seen = new Map<string, { startSeconds: number; endSeconds: number }>();
+        validRanges.forEach((range) => {
+            const key = `${range.startSeconds}-${range.endSeconds}`;
+            if (!seen.has(key)) {
+                seen.set(key, range);
+            }
+        });
+        return Array.from(seen.values());
+    }, [validRanges]);
+    const duplicateCount = Math.max(0, validRanges.length - uniqueRanges.length);
+    const mergedPreview = useMemo(() => mergeRanges(uniqueRanges), [uniqueRanges]);
+    const mergedCount = batchOptions.merge ? Math.max(0, uniqueRanges.length - mergedPreview.length) : 0;
+    const finalCount = batchOptions.merge ? mergedPreview.length : validRanges.length;
 
     useEffect(() => {
         setWindowStart(0);
@@ -638,7 +661,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
         }));
     };
 
-    const mergeRanges = (items: { startSeconds: number; endSeconds: number }[]) => {
+    function mergeRanges(items: { startSeconds: number; endSeconds: number }[]) {
         const sorted = [...items].sort((a, b) => a.startSeconds - b.startSeconds);
         const merged: { startSeconds: number; endSeconds: number }[] = [];
         sorted.forEach((range) => {
@@ -650,17 +673,10 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
             }
         });
         return merged;
-    };
+    }
 
     const applyBatchRanges = (mode: 'replace' | 'append') => {
         setBatchError(null);
-        const validRanges = batchPreview
-            .filter((item) => !item.error && item.startSeconds !== null && item.endSeconds !== null)
-            .map((item) => ({
-                startSeconds: item.startSeconds as number,
-                endSeconds: item.endSeconds as number,
-            }));
-
         if (!batchOptions.ignoreInvalid && invalidCount > 0) {
             setBatchError('存在无效行，请修正后再导入');
             return;
@@ -1052,6 +1068,11 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                     <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
                                         <span>有效 {validCount} 条</span>
                                         <span>无效 {invalidCount} 条</span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-3">
+                                        <span>最终 {finalCount} 条</span>
+                                        <span>重复 {duplicateCount} 条</span>
+                                        <span>合并 {mergedCount} 条</span>
                                     </div>
                                 </div>
                             </div>

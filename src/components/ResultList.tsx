@@ -29,8 +29,16 @@ const ResultList = ({ files, totalElapsedMs, segmentStats }: ResultListProps) =>
         }
     };
 
+    const getPathSegments = (path: string) => path.split(/[\\/]/).filter(Boolean);
+
     const getFileName = (path: string) => {
-        return path.split('/').pop() || path;
+        const segments = getPathSegments(path);
+        return segments[segments.length - 1] || path;
+    };
+
+    const getBatchDirName = (path: string) => {
+        const segments = getPathSegments(path);
+        return segments.length > 1 ? segments[segments.length - 2] : '';
     };
 
     const formatElapsed = (ms: number | null | undefined) => {
@@ -49,10 +57,6 @@ const ResultList = ({ files, totalElapsedMs, segmentStats }: ResultListProps) =>
         }
         return `${seconds.toFixed(2)}s`;
     };
-
-    const statsMap = new Map(
-        segmentStats?.map((stat) => [stat.file, stat.elapsed_ms]) ?? [],
-    );
 
     const handlePlayVideo = (filePath: string) => {
         setPreviewFile(filePath === previewFile ? null : filePath);
@@ -98,6 +102,9 @@ const ResultList = ({ files, totalElapsedMs, segmentStats }: ResultListProps) =>
                     </h3>
                     <div className="flex items-center gap-3">
                         <div className="text-xs text-slate-500 dark:text-slate-400">
+                            子目录: {getBatchDirName(files[0]) || '—'}
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
                             总耗时: {formatElapsed(totalElapsedMs)}
                         </div>
                         <button
@@ -135,9 +142,6 @@ const ResultList = ({ files, totalElapsedMs, segmentStats }: ResultListProps) =>
                                 </span>
                             </div>
                             <div className="flex items-center gap-2 flex-shrink-0">
-                                <span className="text-xs text-slate-400">
-                                    {formatElapsed(statsMap.get(file))}
-                                </span>
                                 <button
                                     className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
                                     title="播放预览"

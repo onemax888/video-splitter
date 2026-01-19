@@ -1,3 +1,4 @@
+use chrono::{Duration as ChronoDuration, Local};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_shell::ShellExt;
@@ -66,7 +67,6 @@ pub enum SeekMode {
 }
 
 const BALANCED_PAD_SECONDS: f64 = 2.0;
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AppendSource {
@@ -82,6 +82,27 @@ struct MediaParams {
     sample_rate: u32,
     channels: u32,
     has_audio: bool,
+}
+
+fn build_batch_output_dir(output_dir: &str, _input_path: &str) -> Result<String, String> {
+    let now = Local::now();
+    let base_dir = Path::new(output_dir);
+
+    for i in 0..1000 {
+        let candidate_time = now + ChronoDuration::seconds(i as i64);
+        let name = format!(
+            "{}",
+            candidate_time.format("%Y%m%d_%H%M%S")
+        );
+        let candidate = base_dir.join(&name);
+        if !candidate.exists() {
+            std::fs::create_dir_all(&candidate)
+                .map_err(|e| format!("创建输出目录失败: {}", e))?;
+            return Ok(candidate.to_string_lossy().to_string());
+        }
+    }
+
+    Err("无法生成唯一输出目录".to_string())
 }
 
 fn get_os_info() -> String {
@@ -878,6 +899,7 @@ pub async fn split_video_with_append(
         let total_duration = get_video_duration(app_handle, input_path).await?;
         build_ranges_from_interval(total_duration, segment_duration)
     };
+    let output_dir = build_batch_output_dir(output_dir, input_path)?;
 
     if ranges.is_empty() {
         return Err("没有可用的切分范围".to_string());
@@ -1072,6 +1094,7 @@ pub async fn split_video(
     let overall_start = Instant::now();
     let total_duration = get_video_duration(app_handle, input_path).await?;
     let total_segments = (total_duration / segment_duration as f64).ceil() as u32;
+    let output_dir = build_batch_output_dir(output_dir, input_path)?;
 
     let path = std::path::Path::new(input_path);
     let stem = path
@@ -1176,6 +1199,7 @@ pub async fn split_video_by_ranges(
     seek_mode: SeekMode,
 ) -> Result<SplitResult, String> {
     let overall_start = Instant::now();
+    let output_dir = build_batch_output_dir(output_dir, input_path)?;
     let path = std::path::Path::new(input_path);
     let stem = path
         .file_stem()
