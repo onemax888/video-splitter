@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useMemo } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import Hls from 'hls.js';
 import { usePreviewSource } from '../hooks/usePreviewSource';
+import { useI18n } from '../i18n/I18nProvider';
+import { formatAppError } from '../utils/appError';
 
 interface VideoPlayerProps {
     filePath: string;
@@ -14,6 +16,7 @@ interface VideoPlayerProps {
 }
 
 const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTimeUpdate, seekTo }: VideoPlayerProps) => {
+    const { t } = useI18n();
     const videoRef = useRef<HTMLVideoElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
@@ -73,10 +76,10 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
 
     useEffect(() => {
         if (!source && prepareError) {
-            setHlsError('HLS 分片生成失败');
+            setHlsError(t('videoPlayer.hls.prepareFailed'));
             setIsLoading(false);
         }
-    }, [prepareError, source]);
+    }, [prepareError, source, t]);
 
     const timelineDuration = totalDuration ?? duration;
 
@@ -175,7 +178,7 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
             }
             video.removeAttribute('src');
             video.load();
-            setHlsError('当前平台不支持 HLS 播放');
+            setHlsError(t('videoPlayer.hls.notSupported'));
             return;
         }
 
@@ -208,7 +211,7 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
         hls.on(Hls.Events.ERROR, (_, data) => {
             if (data.fatal) {
                 const detail = data.details ? ` (${data.details})` : '';
-                setHlsError(`HLS 播放失败: ${data.type}${detail}`);
+                setHlsError(t('videoPlayer.hls.playbackFailed', { detail: `${data.type}${detail}` }));
                 hls.destroy();
             }
         });
@@ -220,7 +223,7 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
             hls.off(Hls.Events.LEVEL_UPDATED, handleStartOffset);
             hls.destroy();
         };
-    }, [source?.kind, source?.path, isPreparing, retryToken, source]);
+    }, [source?.kind, source?.path, isPreparing, retryToken, source, t]);
 
     useEffect(() => {
         if (videoRef.current && !isPreparing && source?.kind === 'file') {
@@ -274,7 +277,7 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
         }
 
         videoRef.current.play().catch(err => {
-            setError(`播放失败: ${err.message}`);
+            setError(t('videoPlayer.player.playFailed', { message: err.message }));
         });
     };
 
@@ -333,21 +336,21 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
 
     const handleError = () => {
         const video = videoRef.current;
-        let errorMessage = '视频加载失败';
+        let errorMessage = t('videoPlayer.player.loadFailed');
 
         if (video?.error) {
             switch (video.error.code) {
                 case MediaError.MEDIA_ERR_ABORTED:
-                    errorMessage = '视频加载被中断';
+                    errorMessage = t('videoPlayer.player.loadAborted');
                     break;
                 case MediaError.MEDIA_ERR_NETWORK:
-                    errorMessage = '网络错误导致视频加载失败';
+                    errorMessage = t('videoPlayer.player.loadNetworkError');
                     break;
                 case MediaError.MEDIA_ERR_DECODE:
-                    errorMessage = '视频解码失败，格式可能不支持';
+                    errorMessage = t('videoPlayer.player.decodeError');
                     break;
                 case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-                    errorMessage = '视频格式不支持或文件不存在';
+                    errorMessage = t('videoPlayer.player.notSupported');
                     break;
             }
         }
@@ -424,7 +427,7 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    {title || '视频预览'}
+                    {title || t('videoPlayer.title')}
                 </h3>
                 <div className="flex items-center gap-2">
                     {fileSize && (
@@ -452,7 +455,7 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
                         <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                         </svg>
-                        <span>大文件 ({formatFileSize(fileSize!)})，加载可能需要较长时间，请耐心等待...</span>
+                        <span>{t('videoPlayer.largeFileWarning', { size: formatFileSize(fileSize!) })}</span>
                     </p>
                 </div>
             )}
@@ -486,7 +489,7 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                             </svg>
                             <span className="text-white text-sm">
-                                {isPreparing ? '正在生成 HLS 分片...' : '加载视频中...'}
+                                {isPreparing ? t('videoPlayer.hls.preparing') : t('videoPlayer.player.loading')}
                             </span>
                             {loadingProgress > 0 && !isPreparing && (
                                 <div className="w-32 h-1 bg-slate-600 rounded-full overflow-hidden">
@@ -510,19 +513,19 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
                             <span className="text-white text-sm">{error || hlsError}</span>
                             {prepareError && (
                                 <div className="text-[10px] text-slate-300">
-                                    HLS 分片生成失败：{prepareError}
+                                    {t('videoPlayer.hls.prepareFailedDetail', { message: formatAppError(prepareError, t) })}
                                 </div>
                             )}
                             <div className="mt-2 p-2 bg-black/40 rounded text-[9px] font-mono text-slate-400 break-all max-w-[80%] border border-white/10 text-left">
-                                <div className="text-slate-500 mb-1">Error Code: {videoRef.current?.error?.code}</div>
-                                <div className="text-slate-500 mb-1">Path:</div>
+                                <div className="text-slate-500 mb-1">{t('videoPlayer.errorCode')}: {videoRef.current?.error?.code}</div>
+                                <div className="text-slate-500 mb-1">{t('videoPlayer.path')}:</div>
                                 {debugSrc}
                             </div>
                             <button
                                 onClick={handleRetry}
                                 className="px-5 py-2 bg-primary-500 hover:bg-primary-600 text-white text-sm rounded-lg transition-all mt-4 font-medium shadow-lg"
                             >
-                                重试
+                                {t('common.retry')}
                             </button>
                         </div>
                     </div>

@@ -1,3 +1,4 @@
+use crate::errors::AppError;
 use crate::ffmpeg::{check_ffmpeg, format_duration, get_video_duration, prepare_hls_source, split_video, split_video_by_ranges, split_video_with_append, AppendSource, PreviewSource, FFmpegStatus, SeekMode, SplitResult, TimeRange, VideoInfo};
 use tauri::{AppHandle, Manager};
 
@@ -7,8 +8,10 @@ pub async fn check_ffmpeg_command(app_handle: AppHandle) -> FFmpegStatus {
 }
 
 #[tauri::command]
-pub async fn get_video_info(app_handle: AppHandle, path: String) -> Result<VideoInfo, String> {
-    let duration = get_video_duration(&app_handle, &path).await?;
+pub async fn get_video_info(app_handle: AppHandle, path: String) -> Result<VideoInfo, AppError> {
+    let duration = get_video_duration(&app_handle, &path)
+        .await
+        .map_err(AppError::from_message)?;
     let duration_formatted = format_duration(duration);
 
     let file_path = std::path::Path::new(&path);
@@ -39,9 +42,11 @@ pub async fn split_video_command(
     segment_duration: u32,
     intro: Option<AppendSource>,
     outro: Option<AppendSource>,
-) -> Result<SplitResult, String> {
+) -> Result<SplitResult, AppError> {
     if intro.is_none() && outro.is_none() {
-        split_video(&app_handle, &input_path, &output_dir, segment_duration).await
+        split_video(&app_handle, &input_path, &output_dir, segment_duration)
+            .await
+            .map_err(AppError::from_message)
     } else {
         split_video_with_append(
             &app_handle,
@@ -53,6 +58,7 @@ pub async fn split_video_command(
             outro,
         )
         .await
+        .map_err(AppError::from_message)
     }
 }
 
@@ -65,9 +71,11 @@ pub async fn split_video_by_ranges_command(
     seek_mode: SeekMode,
     intro: Option<AppendSource>,
     outro: Option<AppendSource>,
-) -> Result<SplitResult, String> {
+) -> Result<SplitResult, AppError> {
     if intro.is_none() && outro.is_none() {
-        split_video_by_ranges(&app_handle, &input_path, &output_dir, ranges, seek_mode).await
+        split_video_by_ranges(&app_handle, &input_path, &output_dir, ranges, seek_mode)
+            .await
+            .map_err(AppError::from_message)
     } else {
         split_video_with_append(
             &app_handle,
@@ -79,6 +87,7 @@ pub async fn split_video_by_ranges_command(
             outro,
         )
         .await
+        .map_err(AppError::from_message)
     }
 }
 
@@ -90,7 +99,7 @@ pub async fn prepare_hls_source_command(
     segment_seconds: u64,
     start_seconds: Option<f64>,
     window_seconds: Option<u64>,
-) -> Result<PreviewSource, String> {
+) -> Result<PreviewSource, AppError> {
     prepare_hls_source(
         &app_handle,
         &input_path,
@@ -100,6 +109,7 @@ pub async fn prepare_hls_source_command(
         window_seconds,
     )
     .await
+    .map_err(AppError::from_message)
 }
 
 /// Allow a user-selected file or directory for the asset protocol.

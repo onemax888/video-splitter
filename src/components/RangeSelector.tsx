@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useI18n } from '../i18n/I18nProvider';
 
 export interface TimeRange {
     id: string;
@@ -29,6 +30,7 @@ const RangeSelector = ({
     onSeek,
     disabled = false,
 }: RangeSelectorProps) => {
+    const { t } = useI18n();
     const [start, setStart] = useState<number>(0);
     const [end, setEnd] = useState<number>(0);
 
@@ -69,13 +71,13 @@ const RangeSelector = ({
         <div className="space-y-6">
             <div className="flex items-center space-x-4">
                 <label className="text-sm font-medium text-slate-600 dark:text-slate-300 w-24">
-                    ✂️ 选择片段
+                    {t('rangeSelector.label')}
                 </label>
                 
                 <div className="flex-1 space-y-4">
                     <div className="flex items-end gap-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
                         <div className="flex-1 space-y-1">
-                            <label className="text-xs text-slate-500 font-medium">开始时间</label>
+                            <label className="text-xs text-slate-500 font-medium">{t('rangeSelector.startTime')}</label>
                             <div className="flex gap-2">
                                 <input
                                     type="text"
@@ -88,7 +90,7 @@ const RangeSelector = ({
                                     disabled={disabled}
                                     className="px-3 py-2 text-xs font-medium bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 rounded-lg hover:bg-primary-200 dark:hover:bg-primary-900/50 transition-colors whitespace-nowrap"
                                 >
-                                    设为当前
+                                    {t('rangeSelector.setCurrent')}
                                 </button>
                             </div>
                         </div>
@@ -100,7 +102,7 @@ const RangeSelector = ({
                         </div>
 
                         <div className="flex-1 space-y-1">
-                            <label className="text-xs text-slate-500 font-medium">结束时间</label>
+                            <label className="text-xs text-slate-500 font-medium">{t('rangeSelector.endTime')}</label>
                             <div className="flex gap-2">
                                 <input
                                     type="text"
@@ -113,7 +115,7 @@ const RangeSelector = ({
                                     disabled={disabled}
                                     className="px-3 py-2 text-xs font-medium bg-primary-100 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 rounded-lg hover:bg-primary-200 dark:hover:bg-primary-900/50 transition-colors whitespace-nowrap"
                                 >
-                                    设为当前
+                                    {t('rangeSelector.setCurrent')}
                                 </button>
                             </div>
                         </div>
@@ -128,14 +130,14 @@ const RangeSelector = ({
                                     : 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed'}
                             `}
                         >
-                            添加
+                            {t('rangeSelector.add')}
                         </button>
                     </div>
 
                     {ranges.length > 0 && (
                         <div className="space-y-2">
                             <div className="text-xs font-medium text-slate-500 uppercase tracking-wider pl-1">
-                                已选片段 ({ranges.length})
+                                {t('rangeSelector.selectedRanges', { count: ranges.length })}
                             </div>
                             <div className="max-h-[200px] overflow-y-auto space-y-2 pr-1 custom-scrollbar">
                                 {ranges.map((range, index) => (
@@ -171,7 +173,7 @@ const RangeSelector = ({
                                             <button
                                                 onClick={() => onSeek(range.start)}
                                                 className="p-1.5 text-slate-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/30 rounded transition-colors"
-                                                title="预览开始"
+                                                title={t('rangeSelector.previewStart')}
                                             >
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
@@ -180,7 +182,7 @@ const RangeSelector = ({
                                             <button
                                                 onClick={() => handleRemove(range.id)}
                                                 className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors"
-                                                title="删除"
+                                                title={t('common.delete')}
                                             >
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

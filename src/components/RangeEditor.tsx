@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useI18n } from '../i18n/I18nProvider';
 
 interface Range {
   start: number;
@@ -36,6 +37,7 @@ const RangeEditor = ({
   onSeek,
   disabled = false
 }: RangeEditorProps) => {
+  const { t } = useI18n();
   const [start, setStart] = useState<number | null>(null);
   const [end, setEnd] = useState<number | null>(null);
 
@@ -70,14 +72,14 @@ const RangeEditor = ({
     <div className="space-y-6">
       <div className="flex items-center space-x-4">
         <label className="text-sm font-medium text-slate-600 dark:text-slate-300 w-24">
-          ✂️ 选择范围
+          {t('rangeEditor.label')}
         </label>
         
         <div className="flex-1 space-y-4">
           {/* Controls */}
           <div className="flex items-center gap-3">
              <div className="flex flex-col gap-1">
-                <span className="text-xs text-slate-500 uppercase font-bold">开始时间</span>
+                <span className="text-xs text-slate-500 uppercase font-bold">{t('rangeEditor.startTime')}</span>
                 <div className="flex items-center gap-2">
                     <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-lg font-mono text-sm border border-slate-200 dark:border-slate-700 min-w-[100px] text-center">
                         {start !== null ? formatTime(start) : '--:--:--'}
@@ -87,7 +89,7 @@ const RangeEditor = ({
                         disabled={disabled}
                         className="px-3 py-2 bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 rounded-lg text-xs font-medium transition-colors"
                     >
-                        设为当前
+                        {t('rangeEditor.setCurrent')}
                     </button>
                 </div>
              </div>
@@ -95,7 +97,7 @@ const RangeEditor = ({
              <div className="h-8 w-px bg-slate-300 dark:bg-slate-700 mx-2"></div>
 
              <div className="flex flex-col gap-1">
-                <span className="text-xs text-slate-500 uppercase font-bold">结束时间</span>
+                <span className="text-xs text-slate-500 uppercase font-bold">{t('rangeEditor.endTime')}</span>
                 <div className="flex items-center gap-2">
                     <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-lg font-mono text-sm border border-slate-200 dark:border-slate-700 min-w-[100px] text-center">
                         {end !== null ? formatTime(end) : '--:--:--'}
@@ -109,7 +111,7 @@ const RangeEditor = ({
                              : 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50'
                         }`}
                     >
-                        设为当前
+                        {t('rangeEditor.setCurrent')}
                     </button>
                 </div>
              </div>
@@ -129,14 +131,14 @@ const RangeEditor = ({
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                添加片段
+                {t('rangeEditor.addSegment')}
              </button>
           </div>
 
           {/* Range List */}
           {ranges.length > 0 && (
             <div className="space-y-2 max-h-60 overflow-y-auto pr-1 custom-scrollbar">
-                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">已添加片段 ({ranges.length})</div>
+                <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">{t('rangeEditor.addedSegments', { count: ranges.length })}</div>
                 {ranges.map((range, index) => (
                     <div 
                         key={index}
@@ -160,7 +162,7 @@ const RangeEditor = ({
                             <button
                                 onClick={() => onSeek(range.start)}
                                 className="p-1.5 text-slate-400 hover:text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20 rounded-md transition-colors"
-                                title="跳转到开始"
+                                title={t('rangeEditor.jumpToStart')}
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
@@ -170,7 +172,7 @@ const RangeEditor = ({
                             <button
                                 onClick={() => onDeleteRange(index)}
                                 className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
-                                title="删除片段"
+                                title={t('rangeEditor.deleteSegment')}
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

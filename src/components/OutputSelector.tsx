@@ -1,4 +1,5 @@
 import { open } from '@tauri-apps/plugin-dialog';
+import { useI18n } from '../i18n/I18nProvider';
 
 interface OutputSelectorProps {
     value: string;
@@ -11,6 +12,7 @@ const OutputSelector = ({
     onChange,
     disabled = false,
 }: OutputSelectorProps) => {
+    const { t } = useI18n();
     const handleClick = async () => {
         if (disabled) return;
 
@@ -24,7 +26,7 @@ const OutputSelector = ({
         }
     };
 
-    const displayPath = value || '请选择输出目录';
+    const displayPath = value || t('outputSelector.placeholder');
     const truncatedPath = value
         ? value.length > 40
             ? '...' + value.slice(-40)
@@ -34,7 +36,7 @@ const OutputSelector = ({
     return (
         <div className="flex items-center space-x-4">
             <label className="text-sm font-medium text-slate-600 dark:text-slate-300 w-24">
-                📂 输出目录
+                {t('outputSelector.label')}
             </label>
             <div className="flex-1 flex items-center space-x-2">
                 <div
@@ -61,7 +63,7 @@ const OutputSelector = ({
             ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
           `}
                 >
-                    选择...
+                    {t('outputSelector.select')}
                 </button>
             </div>
         </div>

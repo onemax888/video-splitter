@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import Hls from 'hls.js';
 import { usePreviewSource } from '../hooks/usePreviewSource';
+import { useI18n } from '../i18n/I18nProvider';
+import { formatAppError } from '../utils/appError';
 
 export interface TimeRange {
     id: string;
@@ -32,13 +34,13 @@ const formatTime = (seconds: number): string => {
     return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
 
-const formatDuration = (seconds: number): string => {
+const formatDuration = (seconds: number, locale: string): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     if (mins > 0) {
-        return `${mins}分${secs}秒`;
+        return locale === 'zh-CN' ? `${mins}分${secs}秒` : `${mins}m ${secs}s`;
     }
-    return `${secs}秒`;
+    return locale === 'zh-CN' ? `${secs}秒` : `${secs}s`;
 };
 
 interface BatchParseLine {
@@ -60,6 +62,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
     onDeleteRange,
     disabled = false,
 }: TimeRangeEditorProps, ref: ForwardedRef<TimeRangeEditorRef>) {
+    const { t, locale } = useI18n();
     const videoRef = useRef<HTMLVideoElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
@@ -159,7 +162,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                     raw: line,
                     startSeconds: null,
                     endSeconds: null,
-                    error: '缺少起止时间',
+                    error: t('timeRange.batch.errorMissingRange'),
                 });
                 return;
             }
@@ -173,7 +176,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                     raw: line,
                     startSeconds: start,
                     endSeconds: end,
-                    error: '时间格式错误',
+                    error: t('timeRange.batch.errorFormat'),
                 });
                 return;
             }
@@ -184,7 +187,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                     raw: line,
                     startSeconds: start,
                     endSeconds: end,
-                    error: '结束时间必须大于开始时间',
+                    error: t('timeRange.batch.errorEndAfterStart'),
                 });
                 return;
             }
@@ -207,7 +210,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                     raw: line,
                     startSeconds: finalStart,
                     endSeconds: finalEnd,
-                    error: '时间超出视频时长',
+                    error: t('timeRange.batch.errorOutOfRange'),
                 });
                 return;
             }
@@ -218,7 +221,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                     raw: line,
                     startSeconds: finalStart,
                     endSeconds: finalEnd,
-                    error: '结束时间必须大于开始时间',
+                    error: t('timeRange.batch.errorEndAfterStart'),
                 });
                 return;
             }
@@ -235,7 +238,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
         return results;
     };
 
-    const batchPreview = useMemo(() => parseBatchText(batchText), [batchText, batchOptions, duration]);
+    const batchPreview = useMemo(() => parseBatchText(batchText), [batchText, batchOptions, duration, t]);
     const validRanges = useMemo(
         () => batchPreview
             .filter((item) => !item.error && item.startSeconds !== null && item.endSeconds !== null)
@@ -280,10 +283,10 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
 
     useEffect(() => {
         if (!source && prepareError) {
-            setHlsError('HLS 分片生成失败');
+            setHlsError(t('timeRange.hls.prepareFailed'));
             setIsLoading(false);
         }
-    }, [prepareError, source]);
+    }, [prepareError, source, t]);
 
     const timelineDuration = duration;
 
@@ -376,7 +379,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
             }
             video.removeAttribute('src');
             video.load();
-            setHlsError('当前平台不支持 HLS 播放');
+            setHlsError(t('timeRange.hls.notSupported'));
             return;
         }
 
@@ -401,7 +404,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
         hls.on(Hls.Events.ERROR, (_, data) => {
             if (data.fatal) {
                 const detail = data.details ? ` (${data.details})` : '';
-                setHlsError(`HLS 播放失败: ${data.type}${detail}`);
+                setHlsError(t('timeRange.hls.playbackFailed', { detail: `${data.type}${detail}` }));
                 hls.destroy();
             }
         });
@@ -411,7 +414,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
             hls.off(Hls.Events.LEVEL_UPDATED, handleStartOffset);
             hls.destroy();
         };
-    }, [source?.kind, source?.path, isPreparing, retryToken, source]);
+    }, [source?.kind, source?.path, isPreparing, retryToken, source, t]);
 
     useEffect(() => {
         if (videoRef.current && !isPreparing && source?.kind === 'file') {
@@ -460,7 +463,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
         }
 
         videoRef.current.play().catch(err => {
-            setError(`播放失败: ${err.message}`);
+            setError(t('timeRange.player.playFailed', { message: err.message }));
         });
     };
 
@@ -511,21 +514,21 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
 
     const handleError = () => {
         const video = videoRef.current;
-        let errorMessage = '视频加载失败';
+        let errorMessage = t('timeRange.player.loadFailed');
 
         if (video?.error) {
             switch (video.error.code) {
                 case MediaError.MEDIA_ERR_ABORTED:
-                    errorMessage = '视频加载被中断';
+                    errorMessage = t('timeRange.player.loadAborted');
                     break;
                 case MediaError.MEDIA_ERR_NETWORK:
-                    errorMessage = '网络错误导致视频加载失败';
+                    errorMessage = t('timeRange.player.loadNetworkError');
                     break;
                 case MediaError.MEDIA_ERR_DECODE:
-                    errorMessage = '视频解码失败，格式可能不支持';
+                    errorMessage = t('timeRange.player.decodeError');
                     break;
                 case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-                    errorMessage = '视频格式不支持或文件不存在';
+                    errorMessage = t('timeRange.player.notSupported');
                     break;
             }
         }
@@ -678,12 +681,12 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
     const applyBatchRanges = (mode: 'replace' | 'append') => {
         setBatchError(null);
         if (!batchOptions.ignoreInvalid && invalidCount > 0) {
-            setBatchError('存在无效行，请修正后再导入');
+            setBatchError(t('timeRange.batch.errorInvalidLines'));
             return;
         }
 
         if (validRanges.length === 0) {
-            setBatchError('没有可导入的有效片段');
+            setBatchError(t('timeRange.batch.errorNoValid'));
             return;
         }
 
@@ -714,14 +717,14 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                        选择时间范围
+                        {t('timeRange.title')}
                     </h3>
                 </div>
                 <div className="flex items-center gap-3">
                     {(pendingStart !== null || editingRangeId) && (
                         <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
                             <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-                            {editingRangeId ? '编辑中...' : `开始点: ${formatTime(pendingStart!)}`}
+                            {editingRangeId ? t('timeRange.editing') : t('timeRange.pendingStart', { time: formatTime(pendingStart!) })}
                         </span>
                     )}
                     <button
@@ -732,7 +735,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                         disabled={isUiDisabled}
                         className="px-3 py-1 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors disabled:opacity-50"
                     >
-                        批量录入
+                        {t('timeRange.batch.open')}
                     </button>
                 </div>
             </div>
@@ -767,7 +770,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                             </svg>
                             <span className="text-white text-sm">
-                                {isPreparing ? '正在生成 HLS 分片...' : '加载视频中...'}
+                                {isPreparing ? t('timeRange.hls.preparing') : t('timeRange.player.loading')}
                             </span>
                         </div>
                     </div>
@@ -783,19 +786,19 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                             <span className="text-white text-sm">{error || hlsError}</span>
                             {prepareError && (
                                 <div className="text-[10px] text-slate-300">
-                                    HLS 分片生成失败：{prepareError}
+                                    {t('timeRange.hls.prepareFailedDetail', { message: formatAppError(prepareError, t) })}
                                 </div>
                             )}
                             <div className="mt-2 p-2 bg-black/40 rounded text-[9px] font-mono text-slate-400 break-all max-w-[80%] border border-white/10 text-left">
-                                <div className="text-slate-500 mb-1">Error Code: {videoRef.current?.error?.code}</div>
-                                <div className="text-slate-500 mb-1">Path:</div>
+                                <div className="text-slate-500 mb-1">{t('timeRange.errorCode')}: {videoRef.current?.error?.code}</div>
+                                <div className="text-slate-500 mb-1">{t('timeRange.path')}:</div>
                                 {debugSrc}
                             </div>
                             <button
                                 onClick={handleRetry}
                                 className="px-3 py-1.5 bg-primary-500 hover:bg-primary-600 text-white text-sm rounded-lg transition-colors"
                             >
-                                重试
+                                {t('common.retry')}
                             </button>
                         </div>
                     </div>
@@ -890,7 +893,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                 disabled={isUiDisabled}
                                 className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600 transition-colors disabled:opacity-50"
                             >
-                                取消
+                                {t('common.cancel')}
                             </button>
                         )}
                         <button
@@ -898,14 +901,14 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                             disabled={isUiDisabled}
                             className="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50 flex items-center gap-1"
                         >
-                            <span>📍</span> 设为开始
+                            <span>📍</span> {t('timeRange.setStart')}
                         </button>
                         <button
                             onClick={handleSetEnd}
                             disabled={isUiDisabled || (pendingStart === null && !editingRangeId)}
                             className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors disabled:opacity-50 flex items-center gap-1"
                         >
-                            <span>📍</span> 设为结束
+                            <span>📍</span> {t('timeRange.setEnd')}
                         </button>
                     </div>
                 </div>
@@ -915,7 +918,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                 <div className="border-t border-slate-200 dark:border-slate-700">
                     <div className="px-4 py-2 bg-slate-100 dark:bg-slate-800">
                         <h4 className="text-xs font-medium text-slate-600 dark:text-slate-400">
-                            已选片段 ({ranges.length})
+                            {t('timeRange.selectedRanges', { count: ranges.length })}
                         </h4>
                     </div>
                     <div className="max-h-48 overflow-y-auto">
@@ -938,7 +941,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                             {formatTime(range.endTime)}
                                         </span>
                                         <span className="text-xs text-slate-500 dark:text-slate-500 ml-2">
-                                            ({formatDuration(range.endTime - range.startTime)})
+                                            ({formatDuration(range.endTime - range.startTime, locale)})
                                         </span>
                                     </div>
                                 </div>
@@ -947,7 +950,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                         onClick={() => handlePreviewRange(range)}
                                         disabled={isUiDisabled}
                                         className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors disabled:opacity-50"
-                                        title="预览"
+                                        title={t('common.preview')}
                                     >
                                         {activeRangeId === range.id && isPlaying ? (
                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -965,7 +968,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                         onClick={() => handleEditRange(range)}
                                         disabled={isUiDisabled}
                                         className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors disabled:opacity-50"
-                                        title="编辑"
+                                        title={t('common.edit')}
                                     >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -975,7 +978,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                         onClick={() => onDeleteRange(range.id)}
                                         disabled={isUiDisabled}
                                         className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-500 dark:text-slate-400 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50"
-                                        title="删除"
+                                        title={t('common.delete')}
                                     >
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -993,8 +996,8 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                     <div className="w-full max-w-4xl rounded-2xl bg-white dark:bg-slate-900 shadow-xl border border-slate-200 dark:border-slate-700">
                         <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-slate-700">
                             <div>
-                                <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">批量录入时间段</h4>
-                                <p className="text-[11px] text-slate-500 dark:text-slate-400">每行一个片段，支持多种分隔格式</p>
+                                <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200">{t('timeRange.batch.title')}</h4>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400">{t('timeRange.batch.subtitle')}</p>
                             </div>
                             <button
                                 onClick={() => setShowBatchInput(false)}
@@ -1010,32 +1013,32 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                             <div className="grid gap-4 md:grid-cols-[1.2fr_1fr] items-start">
                                 <div className="space-y-2">
                                     <div className="flex items-center justify-between h-6">
-                                        <label className="text-xs font-medium text-slate-600 dark:text-slate-300 leading-none">批量时间段</label>
+                                        <label className="text-xs font-medium text-slate-600 dark:text-slate-300 leading-none">{t('timeRange.batch.inputLabel')}</label>
                                         <button
                                             onClick={() => setBatchText(`00:05:00 00:07:00\n01:05:00 01:10:00\n02:15:30 02:17:40`)}
                                             className="text-[11px] text-primary-500 hover:text-primary-600 leading-none"
                                         >
-                                            填入示例
+                                            {t('timeRange.batch.fillExample')}
                                         </button>
                                     </div>
                                     <textarea
                                         value={batchText}
                                         onChange={(e) => setBatchText(e.target.value)}
-                                        placeholder={`00:10:00 - 00:12:30\n01:05:20 ~ 01:10:00\n02:30:15, 02:45:00`}
+                                        placeholder={t('timeRange.batch.placeholder')}
                                         className="w-full h-40 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-mono text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500/40"
                                     />
                                     <div className="text-[11px] text-slate-500 dark:text-slate-400 space-y-1">
-                                        <div>支持格式：`hh:mm:ss - hh:mm:ss` / `hh:mm:ss ~ hh:mm:ss` / `hh:mm:ss, hh:mm:ss` / 空格分隔，也可用 `mm:ss` 或 `ss`，自动转换</div>
+                                        <div>{t('timeRange.batch.formatHelp')}</div>
                                     </div>
                                 </div>
                                 <div className="space-y-2">
                                     <div className="flex items-center justify-between h-6">
-                                        <label className="text-xs font-medium text-slate-600 dark:text-slate-300 leading-none">解析预览</label>
-                                        <span className="text-[11px] opacity-0 select-none leading-none">填入示例</span>
+                                        <label className="text-xs font-medium text-slate-600 dark:text-slate-300 leading-none">{t('timeRange.batch.previewLabel')}</label>
+                                        <span className="text-[11px] opacity-0 select-none leading-none">{t('timeRange.batch.fillExample')}</span>
                                     </div>
                                     <div className="h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-2 space-y-1">
                                         {batchPreview.length === 0 && (
-                                            <div className="text-[11px] text-slate-400 text-center py-6">暂无内容</div>
+                                            <div className="text-[11px] text-slate-400 text-center py-6">{t('timeRange.batch.empty')}</div>
                                         )}
                                         {batchPreview.map((item) => {
                                             const isError = !!item.error;
@@ -1054,25 +1057,25 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                                         ) : (
                                                             <span className="flex-1 text-right">
                                                                 {formatTime(item.startSeconds || 0)} → {formatTime(item.endSeconds || 0)}
-                                                                {durationSeconds > 0 && ` (${formatDuration(durationSeconds)})`}
+                                                                {durationSeconds > 0 && ` (${formatDuration(durationSeconds, locale)})`}
                                                             </span>
                                                         )}
                                                     </div>
                                                     {!isError && item.clamped && (
-                                                        <div className="text-[10px] text-amber-600 dark:text-amber-400 text-right">已截断到视频时长</div>
+                                                        <div className="text-[10px] text-amber-600 dark:text-amber-400 text-right">{t('timeRange.batch.clamped')}</div>
                                                     )}
                                                 </div>
                                             );
                                         })}
                                     </div>
                                     <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                                        <span>有效 {validCount} 条</span>
-                                        <span>无效 {invalidCount} 条</span>
+                                        <span>{t('timeRange.batch.validCount', { count: validCount })}</span>
+                                        <span>{t('timeRange.batch.invalidCount', { count: invalidCount })}</span>
                                     </div>
                                     <div className="text-[11px] text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-3">
-                                        <span>最终 {finalCount} 条</span>
-                                        <span>重复 {duplicateCount} 条</span>
-                                        <span>合并 {mergedCount} 条</span>
+                                        <span>{t('timeRange.batch.finalCount', { count: finalCount })}</span>
+                                        <span>{t('timeRange.batch.duplicateCount', { count: duplicateCount })}</span>
+                                        <span>{t('timeRange.batch.mergeCount', { count: mergedCount })}</span>
                                     </div>
                                 </div>
                             </div>
@@ -1085,7 +1088,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                         onChange={(e) => setBatchOptions((prev) => ({ ...prev, merge: e.target.checked }))}
                                         className="rounded border-slate-300 dark:border-slate-600"
                                     />
-                                    自动合并重叠片段
+                                    {t('timeRange.batch.optionMerge')}
                                 </label>
                                 <label className="flex items-center gap-2">
                                     <input
@@ -1094,7 +1097,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                         onChange={(e) => setBatchOptions((prev) => ({ ...prev, clamp: e.target.checked }))}
                                         className="rounded border-slate-300 dark:border-slate-600"
                                     />
-                                    超出时长自动截断
+                                    {t('timeRange.batch.optionClamp')}
                                 </label>
                                 <label className="flex items-center gap-2">
                                     <input
@@ -1103,7 +1106,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                         onChange={(e) => setBatchOptions((prev) => ({ ...prev, ignoreInvalid: e.target.checked }))}
                                         className="rounded border-slate-300 dark:border-slate-600"
                                     />
-                                    忽略无效行
+                                    {t('timeRange.batch.optionIgnore')}
                                 </label>
                             </div>
 
@@ -1119,19 +1122,19 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                     }}
                                     className="px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                                 >
-                                    清空输入
+                                    {t('common.clearInput')}
                                 </button>
                                 <button
                                     onClick={() => applyBatchRanges('append')}
                                     className="px-3 py-2 text-xs rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-600"
                                 >
-                                    导入并追加
+                                    {t('timeRange.batch.importAppend')}
                                 </button>
                                 <button
                                     onClick={() => applyBatchRanges('replace')}
                                     className="px-3 py-2 text-xs rounded-lg bg-primary-500 text-white hover:bg-primary-600"
                                 >
-                                    导入并替换
+                                    {t('timeRange.batch.importReplace')}
                                 </button>
                             </div>
                         </div>

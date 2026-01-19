@@ -1,3 +1,5 @@
+import { useI18n } from '../i18n/I18nProvider';
+
 interface DurationInputProps {
     value: number;
     onChange: (value: number) => void;
@@ -7,11 +9,11 @@ interface DurationInputProps {
 }
 
 const PRESETS = [
-    { label: '30秒', value: 30, unit: 'seconds' as const },
-    { label: '1分钟', value: 60, unit: 'seconds' as const },
-    { label: '5分钟', value: 300, unit: 'seconds' as const },
-    { label: '10分钟', value: 600, unit: 'seconds' as const },
-    { label: '30分钟', value: 1800, unit: 'seconds' as const },
+    { labelValue: 30, value: 30, unit: 'seconds' as const },
+    { labelValue: 1, value: 60, unit: 'minutes' as const },
+    { labelValue: 5, value: 300, unit: 'minutes' as const },
+    { labelValue: 10, value: 600, unit: 'minutes' as const },
+    { labelValue: 30, value: 1800, unit: 'minutes' as const },
 ];
 
 const DurationInput = ({
@@ -21,6 +23,7 @@ const DurationInput = ({
     onUnitChange,
     disabled = false,
 }: DurationInputProps) => {
+    const { t } = useI18n();
     const displayValue = unit === 'minutes' ? Math.floor(value / 60) : value;
 
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -39,7 +42,7 @@ const DurationInput = ({
         <div className="space-y-4">
             <div className="flex items-center space-x-4">
                 <label className="text-sm font-medium text-slate-600 dark:text-slate-300 w-24">
-                    ⏱️ 每段时长
+                    {t('durationInput.label')}
                 </label>
                 <div className="flex items-center space-x-2">
                     <input
@@ -71,7 +74,7 @@ const DurationInput = ({
                 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
               `}
                         >
-                            秒
+                            {t('common.seconds')}
                         </button>
                         <button
                             onClick={() => onUnitChange('minutes')}
@@ -85,7 +88,7 @@ const DurationInput = ({
                 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
               `}
                         >
-                            分钟
+                            {t('common.minutes')}
                         </button>
                     </div>
                 </div>
@@ -93,11 +96,16 @@ const DurationInput = ({
 
             {/* Presets */}
             <div className="flex items-center space-x-2">
-                <span className="text-xs text-slate-500 dark:text-slate-500 w-24">快捷选择:</span>
+                <span className="text-xs text-slate-500 dark:text-slate-500 w-24">{t('durationInput.presets')}</span>
                 <div className="flex flex-wrap gap-2">
-                    {PRESETS.map((preset) => (
+                    {PRESETS.map((preset) => {
+                        const labelKey = preset.unit === 'seconds'
+                            ? 'durationInput.presetSeconds'
+                            : 'durationInput.presetMinutes';
+                        const label = t(labelKey, { value: preset.labelValue });
+                        return (
                         <button
-                            key={preset.label}
+                            key={`${preset.unit}-${preset.labelValue}`}
                             onClick={() => handlePresetClick(preset.value)}
                             disabled={disabled}
                             className={`
@@ -107,12 +115,13 @@ const DurationInput = ({
                                     ? 'bg-primary-600 text-white'
                                     : 'bg-slate-100 dark:bg-slate-700/50 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white'
                                 }
-                ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
+                                ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
               `}
                         >
-                            {preset.label}
+                            {label}
                         </button>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
         </div>

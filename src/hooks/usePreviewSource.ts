@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { AppError } from '../types/error';
+import { toAppError } from '../utils/appError';
 
 export type PreviewSourceKind = 'file' | 'hls';
 
@@ -22,7 +24,7 @@ const DEFAULT_SEGMENT_SECONDS = 6;
 export function usePreviewSource(filePath: string, options: PreviewSourceOptions = {}) {
     const [source, setSource] = useState<PreviewSource | null>(null);
     const [isPreparing, setIsPreparing] = useState(false);
-    const [prepareError, setPrepareError] = useState<string | null>(null);
+    const [prepareError, setPrepareError] = useState<AppError | null>(null);
 
     const minSizeBytes = options.minSizeBytes ?? DEFAULT_MIN_SIZE_BYTES;
     const segmentSeconds = options.segmentSeconds ?? DEFAULT_SEGMENT_SECONDS;
@@ -60,7 +62,7 @@ export function usePreviewSource(filePath: string, options: PreviewSourceOptions
             })
             .catch((err) => {
                 if (!cancelled) {
-                    setPrepareError(String(err));
+                    setPrepareError(toAppError(err));
                 }
             })
             .finally(() => {

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
+import { useI18n } from '../i18n/I18nProvider';
 
 interface FileDropZoneProps {
     onFileSelect: (path: string) => void;
@@ -24,6 +25,7 @@ const FileDropZone = ({
     videoInfo,
     disabled = false,
 }: FileDropZoneProps) => {
+    const { t } = useI18n();
     const [isDragging, setIsDragging] = useState(false);
 
     // Listen for Tauri drag-drop events
@@ -69,7 +71,7 @@ const FileDropZone = ({
             multiple: false,
             filters: [
                 {
-                    name: 'Video',
+                    name: t('fileDropZone.filterName'),
                     extensions: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v'],
                 },
             ],
@@ -121,14 +123,14 @@ const FileDropZone = ({
                             </div>
                             <div className="text-center">
                                 <p className="text-lg font-medium text-slate-700 dark:text-slate-200">
-                                    拖拽视频文件到这里
+                                    {t('fileDropZone.dragHere')}
                                 </p>
                                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                                    或点击选择文件
+                                    {t('fileDropZone.clickSelect')}
                                 </p>
                             </div>
                             <p className="text-xs text-slate-400 dark:text-slate-500">
-                                支持 MP4, MKV, AVI, MOV, WebM 等格式
+                                {t('fileDropZone.supportFormats')}
                             </p>
                         </>
                     ) : (
@@ -156,16 +158,16 @@ const FileDropZone = ({
                             </div>
                             <div className="text-center">
                                 <p className="text-lg font-medium text-green-600 dark:text-green-400">
-                                    📹 {videoInfo?.filename || '已选择文件'}
+                                    📹 {videoInfo?.filename || t('fileDropZone.selected')}
                                 </p>
                                 {videoInfo && (
                                     <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                                        时长: {videoInfo.duration_formatted}
+                                        {t('common.duration')}: {videoInfo.duration_formatted}
                                     </p>
                                 )}
                             </div>
                             <p className="text-xs text-slate-400 dark:text-slate-500">
-                                点击可重新选择文件
+                                {t('fileDropZone.reselect')}
                             </p>
                         </>
                     )}

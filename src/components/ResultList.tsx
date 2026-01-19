@@ -2,17 +2,16 @@ import { useState, useEffect } from 'react';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { invoke } from '@tauri-apps/api/core';
 import VideoPlayer from './VideoPlayer';
+import { useI18n } from '../i18n/I18nProvider';
+import { formatAppError, toAppError } from '../utils/appError';
 
 interface ResultListProps {
     files: string[];
     totalElapsedMs?: number;
-    segmentStats?: {
-        file: string;
-        elapsed_ms: number | null;
-    }[];
 }
 
-const ResultList = ({ files, totalElapsedMs, segmentStats }: ResultListProps) => {
+const ResultList = ({ files, totalElapsedMs }: ResultListProps) => {
+    const { t, locale } = useI18n();
     const [previewFile, setPreviewFile] = useState<string | null>(null);
     const [previewDuration, setPreviewDuration] = useState<number | null>(null);
     const [previewError, setPreviewError] = useState<string | null>(null);
@@ -50,12 +49,18 @@ const ResultList = ({ files, totalElapsedMs, segmentStats }: ResultListProps) =>
         const minutes = Math.floor((totalSeconds % 3600) / 60);
         const seconds = totalSeconds % 60;
         if (hours > 0) {
-            return `${hours}h ${minutes}m ${seconds.toFixed(1)}s`;
+            return locale === 'zh-CN'
+                ? `${hours}小时 ${minutes}分 ${seconds.toFixed(1)}秒`
+                : `${hours}h ${minutes}m ${seconds.toFixed(1)}s`;
         }
         if (minutes > 0) {
-            return `${minutes}m ${seconds.toFixed(1)}s`;
+            return locale === 'zh-CN'
+                ? `${minutes}分 ${seconds.toFixed(1)}秒`
+                : `${minutes}m ${seconds.toFixed(1)}s`;
         }
-        return `${seconds.toFixed(2)}s`;
+        return locale === 'zh-CN'
+            ? `${seconds.toFixed(2)}秒`
+            : `${seconds.toFixed(2)}s`;
     };
 
     const handlePlayVideo = (filePath: string) => {
@@ -81,7 +86,7 @@ const ResultList = ({ files, totalElapsedMs, segmentStats }: ResultListProps) =>
             })
             .catch((err) => {
                 if (!cancelled) {
-                    setPreviewError(String(err));
+                    setPreviewError(formatAppError(toAppError(err), t));
                 }
             });
 
@@ -98,14 +103,14 @@ const ResultList = ({ files, totalElapsedMs, segmentStats }: ResultListProps) =>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
-                        输出文件 ({files.length} 个)
+                        {t('resultList.title', { count: files.length })}
                     </h3>
                     <div className="flex items-center gap-3">
                         <div className="text-xs text-slate-500 dark:text-slate-400">
-                            子目录: {getBatchDirName(files[0]) || '—'}
+                            {t('resultList.subdir')}: {getBatchDirName(files[0]) || '—'}
                         </div>
                         <div className="text-xs text-slate-500 dark:text-slate-400">
-                            总耗时: {formatElapsed(totalElapsedMs)}
+                            {t('resultList.totalElapsed')}: {formatElapsed(totalElapsedMs)}
                         </div>
                         <button
                             onClick={handleOpenFolder}
@@ -114,7 +119,7 @@ const ResultList = ({ files, totalElapsedMs, segmentStats }: ResultListProps) =>
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                             </svg>
-                            打开文件夹
+                            {t('resultList.openFolder')}
                         </button>
                     </div>
                 </div>
@@ -144,7 +149,7 @@ const ResultList = ({ files, totalElapsedMs, segmentStats }: ResultListProps) =>
                             <div className="flex items-center gap-2 flex-shrink-0">
                                 <button
                                     className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
-                                    title="播放预览"
+                                    title={t('resultList.preview')}
                                 >
                                     <svg className="w-4 h-4 text-primary-500" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M8 5v14l11-7z" />
@@ -167,7 +172,7 @@ const ResultList = ({ files, totalElapsedMs, segmentStats }: ResultListProps) =>
 
             {previewError && (
                 <div className="text-xs text-red-500">
-                    读取预览时长失败：{previewError}
+                    {t('resultList.previewError', { message: previewError })}
                 </div>
             )}
         </div>

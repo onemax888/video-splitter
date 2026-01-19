@@ -1,8 +1,9 @@
+import { useI18n } from '../i18n/I18nProvider';
+
 interface ProgressBarProps {
     progress: number;
     currentSegment: number;
     totalSegments: number;
-    currentFile: string;
     isProcessing: boolean;
 }
 
@@ -10,16 +11,16 @@ const ProgressBar = ({
     progress,
     currentSegment,
     totalSegments,
-    currentFile,
     isProcessing,
 }: ProgressBarProps) => {
+    const { t } = useI18n();
     if (!isProcessing && progress === 0) return null;
 
     return (
         <div className="w-full space-y-3 glass rounded-xl p-4">
             <div className="flex items-center justify-between text-sm">
                 <span className="text-slate-600 dark:text-slate-300 font-medium">
-                    {isProcessing ? '正在处理...' : '处理完成!'}
+                    {isProcessing ? t('progress.processing') : t('progress.done')}
                 </span>
                 <span className="text-primary-600 dark:text-primary-400 font-mono">
                     {progress.toFixed(0)}%
@@ -38,10 +39,15 @@ const ProgressBar = ({
             {/* Details */}
             <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
                 <span>
-                    第 <span className="text-primary-600 dark:text-primary-400 font-medium">{currentSegment}</span> / {totalSegments} 段
+                    {t('progress.segmentCount', { current: currentSegment, total: totalSegments })}
                 </span>
-                <span className="truncate max-w-[200px]" title={currentFile}>
-                    {currentFile}
+                <span className="truncate max-w-[200px]" title={isProcessing
+                    ? t('progress.processingDetail', { current: currentSegment, total: totalSegments })
+                    : t('progress.done')
+                }>
+                    {isProcessing
+                        ? t('progress.processingDetail', { current: currentSegment, total: totalSegments })
+                        : t('progress.done')}
                 </span>
             </div>
         </div>

@@ -1,4 +1,5 @@
 mod commands;
+mod errors;
 pub mod ffmpeg;
 
 use commands::{allow_asset_path, check_ffmpeg_command, get_video_info, prepare_hls_source_command, select_directory, split_video_command, split_video_by_ranges_command};

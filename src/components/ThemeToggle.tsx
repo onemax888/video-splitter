@@ -1,7 +1,9 @@
 import { useTheme } from '../contexts/ThemeContext';
+import { useI18n } from '../i18n/I18nProvider';
 
 const ThemeToggle = () => {
     const { theme, toggleTheme } = useTheme();
+    const { t } = useI18n();
 
     return (
         <button
@@ -13,7 +15,7 @@ const ThemeToggle = () => {
         transition-all duration-300
         group
       "
-            title={theme === 'dark' ? '切换到浅色模式' : '切换到深色模式'}
+            title={theme === 'dark' ? t('theme.light') : t('theme.dark')}
         >
             {/* Sun icon */}
             <svg

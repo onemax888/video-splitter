@@ -10,9 +10,12 @@ import VideoPlayer from './components/VideoPlayer';
 import SplitModeSelector from './components/SplitModeSelector';
 import TimeRangeEditor, { TimeRange } from './components/TimeRangeEditor';
 import AppendMediaSelector from './components/AppendMediaSelector';
+import LanguageToggle from './components/LanguageToggle';
 import { AppendSource } from './types/append';
 import { SeekMode } from './types/seek';
 import { useVideoSplit } from './hooks/useVideoSplit';
+import { useI18n } from './i18n/I18nProvider';
+import { formatAppError, toAppError } from './utils/appError';
 import './index.css';
 
 interface FFmpegStatus {
@@ -25,6 +28,7 @@ interface FFmpegStatus {
 }
 
 function App() {
+  const { t } = useI18n();
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [segmentDuration, setSegmentDuration] = useState(300); // 5 minutes default
   const [durationUnit, setDurationUnit] = useState<'seconds' | 'minutes'>('seconds');
@@ -49,6 +53,8 @@ function App() {
     splitVideo,
     splitVideoByRanges,
   } = useVideoSplit();
+
+  const errorMessage = error ? formatAppError(error, t) : '';
 
   // Set default output directory to same as input file
   useEffect(() => {
@@ -110,13 +116,14 @@ function App() {
       const status = await invoke<FFmpegStatus>('check_ffmpeg_command');
       setFfmpegStatus(status);
     } catch (err) {
+      const errorMessage = formatAppError(toAppError(err), t);
       setFfmpegStatus({
         found: false,
         ffmpeg_path: null,
         ffprobe_path: null,
         version: null,
         os_info: 'Unknown',
-        error: String(err),
+        error: errorMessage,
       });
     } finally {
       setIsCheckingFfmpeg(false);
@@ -159,18 +166,19 @@ function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             )}
-            检测 FFmpeg
+            {t('app.checkFfmpeg')}
           </button>
         </div>
         <div className="text-center">
           <h1 className="text-3xl font-bold bg-gradient-to-r from-primary-400 to-cyan-400 bg-clip-text text-transparent">
-            🎬 Video Clipping
+            {t('app.title')}
           </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-2">
-            高效的视频切片工具
+            {t('app.subtitle')}
           </p>
         </div>
-        <div className="flex-1 flex justify-end">
+        <div className="flex-1 flex justify-end items-center gap-3">
+          <LanguageToggle />
           <ThemeToggle />
         </div>
       </header>
@@ -190,32 +198,32 @@ function App() {
             )}
             <div className="flex-1 min-w-0">
               <p className={`font-medium text-sm ${ffmpegStatus.found ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                {ffmpegStatus.found ? 'FFmpeg 检测成功 ✓' : '内置 FFmpeg 未找到'}
+                {ffmpegStatus.found ? t('ffmpeg.status.ok') : t('ffmpeg.status.missing')}
               </p>
               {ffmpegStatus.found ? (
                 <div className="mt-2 space-y-1 text-xs text-slate-600 dark:text-slate-400">
                   <p>
-                    <span className="text-slate-500">系统:</span> {ffmpegStatus.os_info}
+                    <span className="text-slate-500">{t('ffmpeg.system')}:</span> {ffmpegStatus.os_info}
                   </p>
                   {ffmpegStatus.version && (
                     <p className="truncate" title={ffmpegStatus.version}>
-                      <span className="text-slate-500">版本:</span> {ffmpegStatus.version}
+                      <span className="text-slate-500">{t('ffmpeg.version')}:</span> {ffmpegStatus.version}
                     </p>
                   )}
                   {ffmpegStatus.ffmpeg_path && (
                     <p className="truncate" title={ffmpegStatus.ffmpeg_path}>
-                      <span className="text-slate-500">ffmpeg:</span> <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{ffmpegStatus.ffmpeg_path}</code>
+                      <span className="text-slate-500">{t('ffmpeg.ffmpegPath')}:</span> <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{ffmpegStatus.ffmpeg_path}</code>
                     </p>
                   )}
                   {ffmpegStatus.ffprobe_path && (
                     <p className="truncate" title={ffmpegStatus.ffprobe_path}>
-                      <span className="text-slate-500">ffprobe:</span> <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{ffmpegStatus.ffprobe_path}</code>
+                      <span className="text-slate-500">{t('ffmpeg.ffprobePath')}:</span> <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded">{ffmpegStatus.ffprobe_path}</code>
                     </p>
                   )}
                 </div>
               ) : (
                 <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
-                  {ffmpegStatus.error || '内置 FFmpeg 异常，请重新安装应用。'}
+                  {ffmpegStatus.error || t('ffmpeg.errorFallback')}
                 </p>
               )}
             </div>
@@ -252,7 +260,7 @@ function App() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              {showPreview ? '隐藏预览' : '预览视频'}
+              {showPreview ? t('app.preview.hide') : t('app.preview.show')}
             </button>
 
             {showPreview && (
@@ -280,7 +288,7 @@ function App() {
               <div className="space-y-2">
                 <div className="flex items-center space-x-4">
                   <label className="text-sm font-medium text-slate-600 dark:text-slate-300 w-24">
-                    ⚡️ 速度/精度
+                    {t('seek.label')}
                   </label>
                   <div className="flex rounded-lg overflow-hidden border border-slate-300 dark:border-slate-600">
                     <button
@@ -295,7 +303,7 @@ function App() {
                         ${isProcessing || hasAppendSources ? 'opacity-50 cursor-not-allowed' : ''}
                       `}
                     >
-                      精确
+                      {t('seek.accurate')}
                     </button>
                     <button
                       onClick={() => setSeekMode('balanced')}
@@ -309,7 +317,7 @@ function App() {
                         ${isProcessing || hasAppendSources ? 'opacity-50 cursor-not-allowed' : ''}
                       `}
                     >
-                      平衡
+                      {t('seek.balanced')}
                     </button>
                     <button
                       onClick={() => setSeekMode('fast')}
@@ -323,34 +331,34 @@ function App() {
                         ${isProcessing || hasAppendSources ? 'opacity-50 cursor-not-allowed' : ''}
                       `}
                     >
-                      快速
+                      {t('seek.fast')}
                     </button>
                   </div>
                 </div>
                 {effectiveSeekMode === 'fast' ? (
                   <p className="text-xs text-slate-500 dark:text-slate-400 pl-28">
-                    速度最快，切点可能有几秒偏差。
+                    {t('seek.fastDesc')}
                   </p>
                 ) : effectiveSeekMode === 'balanced' ? (
                   <p className="text-xs text-slate-500 dark:text-slate-400 pl-28">
-                    速度和准确度折中，通常偏差更小。
+                    {t('seek.balancedDesc')}
                   </p>
                 ) : (
                   <p className="text-xs text-slate-500 dark:text-slate-400 pl-28">
-                    切点最准确，但处理速度较慢。
+                    {t('seek.accurateDesc')}
                   </p>
                 )}
               </div>
             )}
 
             <AppendMediaSelector
-              label="🎬 片头"
+              label={t('append.intro')}
               value={introSource}
               onChange={setIntroSource}
               disabled={isProcessing}
             />
             <AppendMediaSelector
-              label="🎬 片尾"
+              label={t('append.outro')}
               value={outroSource}
               onChange={setOutroSource}
               disabled={isProcessing}
@@ -392,7 +400,6 @@ function App() {
             progress={progress?.percentage || 0}
             currentSegment={progress?.current_segment || 0}
             totalSegments={progress?.total_segments || 0}
-            currentFile={progress?.current_file || ''}
             isProcessing={isProcessing}
           />
         )}
@@ -401,7 +408,7 @@ function App() {
         {error && (
           <div className="glass rounded-xl p-4 border border-red-500/30 bg-red-900/10 dark:bg-red-900/10">
             <p className="text-red-500 dark:text-red-400 text-sm">
-              ❌ 错误: {error}
+              {t('app.error', { message: errorMessage })}
             </p>
           </div>
         )}
@@ -411,7 +418,6 @@ function App() {
           <ResultList
             files={result.output_files}
             totalElapsedMs={result.total_elapsed_ms}
-            segmentStats={result.segment_stats}
           />
         )}
 
@@ -446,10 +452,10 @@ function App() {
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                 />
               </svg>
-              处理中...
+              {t('app.processing')}
             </span>
           ) : (
-            '🚀 开始切分'
+            t('app.startSplit')
           )}
         </button>
 
@@ -457,8 +463,8 @@ function App() {
         {videoInfo && !isProcessing && !result && (
           <p className="text-center text-sm text-slate-500 dark:text-slate-500">
             {splitMode === 'interval'
-              ? `预计将切分为 ${Math.ceil(videoInfo.duration / segmentDuration)} 个片段`
-              : `预计将切分为 ${timeRanges.length} 个片段`
+              ? t('app.estimateSegments', { count: Math.ceil(videoInfo.duration / segmentDuration) })
+              : t('app.estimateSegments', { count: timeRanges.length })
             }
           </p>
         )}
@@ -466,7 +472,7 @@ function App() {
 
       {/* Footer */}
       <footer className="text-center mt-8 text-xs text-slate-500 dark:text-slate-600">
-        Powered by FFmpeg & Tauri
+        {t('app.footer')}
       </footer>
     </div>
   );

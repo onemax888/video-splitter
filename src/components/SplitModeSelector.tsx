@@ -1,3 +1,5 @@
+import { useI18n } from '../i18n/I18nProvider';
+
 interface SplitModeSelectorProps {
     mode: 'interval' | 'ranges';
     onChange: (mode: 'interval' | 'ranges') => void;
@@ -5,9 +7,10 @@ interface SplitModeSelectorProps {
 }
 
 const SplitModeSelector = ({ mode, onChange, disabled = false }: SplitModeSelectorProps) => {
+    const { t } = useI18n();
     return (
         <div className="flex items-center justify-center gap-2">
-            <span className="text-sm font-medium text-slate-600 dark:text-slate-300">切分模式:</span>
+            <span className="text-sm font-medium text-slate-600 dark:text-slate-300">{t('splitMode.label')}</span>
             <div className="flex rounded-lg overflow-hidden border border-slate-300 dark:border-slate-600">
                 <button
                     onClick={() => onChange('ranges')}
@@ -21,7 +24,7 @@ const SplitModeSelector = ({ mode, onChange, disabled = false }: SplitModeSelect
                         ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
                     `}
                 >
-                    ✂️ 时间范围
+                    {t('splitMode.ranges')}
                 </button>
                 <button
                     onClick={() => onChange('interval')}
@@ -35,7 +38,7 @@ const SplitModeSelector = ({ mode, onChange, disabled = false }: SplitModeSelect
                         ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
                     `}
                 >
-                    ⏱️ 固定间隔
+                    {t('splitMode.interval')}
                 </button>
             </div>
         </div>

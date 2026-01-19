@@ -1,5 +1,6 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import { AppendSource, AppendKind } from '../types/append';
+import { useI18n } from '../i18n/I18nProvider';
 
 interface AppendMediaSelectorProps {
     label: string;
@@ -19,6 +20,7 @@ const AppendMediaSelector = ({
     onChange,
     disabled = false,
 }: AppendMediaSelectorProps) => {
+    const { t } = useI18n();
     const kind = value?.kind ?? 'none';
 
     const handleKindChange = (next: 'none' | AppendKind) => {
@@ -41,7 +43,7 @@ const AppendMediaSelector = ({
             multiple: false,
             filters: [
                 {
-                    name: kind === 'image' ? 'Image' : 'Video',
+                    name: kind === 'image' ? t('append.filterImage') : t('append.filterVideo'),
                     extensions: kind === 'image' ? IMAGE_EXTENSIONS : VIDEO_EXTENSIONS,
                 },
             ],
@@ -76,7 +78,7 @@ const AppendMediaSelector = ({
     };
 
     const pathValue = value?.path ?? '';
-    const displayPath = pathValue || '未选择文件';
+    const displayPath = pathValue || t('append.noFile');
     const truncatedPath = pathValue
         ? pathValue.length > 40
             ? '...' + pathValue.slice(-40)
@@ -102,7 +104,7 @@ const AppendMediaSelector = ({
                             ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
                         `}
                     >
-                        无
+                        {t('append.none')}
                     </button>
                     <button
                         onClick={() => handleKindChange('image')}
@@ -116,7 +118,7 @@ const AppendMediaSelector = ({
                             ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
                         `}
                     >
-                        图片
+                        {t('append.image')}
                     </button>
                     <button
                         onClick={() => handleKindChange('video')}
@@ -130,7 +132,7 @@ const AppendMediaSelector = ({
                             ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
                         `}
                     >
-                        视频
+                        {t('append.video')}
                     </button>
                 </div>
             </div>
@@ -162,7 +164,7 @@ const AppendMediaSelector = ({
                                 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
                             `}
                         >
-                            选择...
+                            {t('common.select')}
                         </button>
                         <button
                             onClick={handleClear}
@@ -176,13 +178,13 @@ const AppendMediaSelector = ({
                                 ${disabled || !value?.path ? 'opacity-50 cursor-not-allowed' : ''}
                             `}
                         >
-                            清除
+                            {t('common.clear')}
                         </button>
                     </div>
 
                     {kind === 'image' && (
                         <div className="flex items-center space-x-3">
-                            <span className="text-xs text-slate-500 dark:text-slate-400">图片时长(秒)</span>
+                            <span className="text-xs text-slate-500 dark:text-slate-400">{t('append.imageDuration')}</span>
                             <input
                                 type="number"
                                 min={1}

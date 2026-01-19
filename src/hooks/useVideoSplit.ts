@@ -3,6 +3,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { AppendSource } from '../types/append';
 import { SeekMode } from '../types/seek';
+import { useI18n } from '../i18n/I18nProvider';
+import { AppError } from '../types/error';
+import { toAppError } from '../utils/appError';
 
 interface VideoInfo {
     path: string;
@@ -37,12 +40,13 @@ interface TimeRange {
 }
 
 export function useVideoSplit() {
+    const { t } = useI18n();
     const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [progress, setProgress] = useState<SplitProgress | null>(null);
     const [result, setResult] = useState<SplitResult | null>(null);
-    const [error, setError] = useState<string | null>(null);
+    const [error, setError] = useState<AppError | null>(null);
 
     // Listen for progress events
     useEffect(() => {
@@ -65,7 +69,7 @@ export function useVideoSplit() {
             const info = await invoke<VideoInfo>('get_video_info', { path });
             setVideoInfo(info);
         } catch (err) {
-            setError(err as string);
+            setError(toAppError(err));
             setVideoInfo(null);
         } finally {
             setIsLoading(false);
@@ -86,7 +90,7 @@ export function useVideoSplit() {
             current_segment: 0,
             total_segments: Math.ceil((videoInfo?.duration || 0) / segmentDuration),
             percentage: 0,
-            current_file: '准备中...',
+            current_file: t('progress.preparing'),
         });
 
         try {
@@ -99,11 +103,11 @@ export function useVideoSplit() {
             });
             setResult(splitResult);
         } catch (err) {
-            setError(err as string);
+            setError(toAppError(err));
         } finally {
             setIsProcessing(false);
         }
-    }, [videoInfo]);
+    }, [t, videoInfo]);
 
     const splitVideoByRanges = useCallback(async (
         inputPath: string,
@@ -120,7 +124,7 @@ export function useVideoSplit() {
             current_segment: 0,
             total_segments: ranges.length,
             percentage: 0,
-            current_file: '准备中...',
+            current_file: t('progress.preparing'),
         });
 
         try {
@@ -138,11 +142,11 @@ export function useVideoSplit() {
             });
             setResult(splitResult);
         } catch (err) {
-            setError(err as string);
+            setError(toAppError(err));
         } finally {
             setIsProcessing(false);
         }
-    }, []);
+    }, [t]);
 
     const reset = useCallback(() => {
         setVideoInfo(null);
