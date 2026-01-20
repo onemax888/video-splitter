@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Video Clipping 视频切片工具",
+        "title": "Video Clipping",
         "width": 900,
         "height": 700,
         "resizable": true,
