@@ -1279,6 +1279,8 @@ pub async fn split_video_by_ranges(
         args.extend([
             "-map".to_string(),
             "0".to_string(),
+            "-map".to_string(),
+            "-0:v:m:attached_pic".to_string(),
             "-c:v".to_string(),
             "libx264".to_string(),
             "-c:a".to_string(),
