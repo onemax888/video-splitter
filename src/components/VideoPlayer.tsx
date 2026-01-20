@@ -39,7 +39,7 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
     const isLargeFile = fileSize && fileSize > LARGE_FILE_THRESHOLD;
     const HLS_MIN_SIZE_DEFAULT = 200 * 1024 * 1024;
     const HLS_SEGMENT_SECONDS = 2;
-    const HLS_WINDOW_SECONDS = 10 * 60;
+    const HLS_WINDOW_SECONDS = 4 * 60;
     const HLS_WINDOW_PADDING = 0;
 
     const forceHls = useMemo(() => {
