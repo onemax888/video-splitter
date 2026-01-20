@@ -471,9 +471,6 @@ function App() {
       </main>
 
       {/* Footer */}
-      <footer className="text-center mt-8 text-xs text-slate-500 dark:text-slate-600">
-        {t('app.footer')}
-      </footer>
     </div>
   );
 }

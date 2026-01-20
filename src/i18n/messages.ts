@@ -16,7 +16,6 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
         'app.processing': '处理中...',
         'app.startSplit': '🚀 开始切分',
         'app.estimateSegments': '预计将切分为 {{count}} 个片段',
-        'app.footer': 'Powered by FFmpeg & Tauri',
 
         'ffmpeg.status.ok': 'FFmpeg 检测成功 ✓',
         'ffmpeg.status.missing': '内置 FFmpeg 未找到',
@@ -200,7 +199,6 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
         'app.processing': 'Processing...',
         'app.startSplit': '🚀 Start Split',
         'app.estimateSegments': 'Estimated {{count}} segments',
-        'app.footer': 'Powered by FFmpeg & Tauri',
 
         'ffmpeg.status.ok': 'FFmpeg detected ✓',
         'ffmpeg.status.missing': 'Bundled FFmpeg not found',
