@@ -1197,6 +1197,7 @@ pub async fn split_video_by_ranges(
     output_dir: &str,
     ranges: Vec<TimeRange>,
     seek_mode: SeekMode,
+    fast_copy_threshold_seconds: Option<u32>,
 ) -> Result<SplitResult, String> {
     let overall_start = Instant::now();
     let output_dir = build_batch_output_dir(output_dir, input_path)?;
@@ -1220,6 +1221,11 @@ pub async fn split_video_by_ranges(
             return Err(format!("片段时长无效: {}", segment_len));
         }
 
+        let use_fast_copy = fast_copy_threshold_seconds
+            .filter(|threshold| *threshold > 0)
+            .map(|threshold| segment_len >= threshold as f64)
+            .unwrap_or(false);
+
         let progress = SplitProgress {
             current_segment: i as u32 + 1,
             total_segments,
@@ -1236,67 +1242,89 @@ pub async fn split_video_by_ranges(
 
         let mut args: Vec<String> = vec!["-y".to_string()];
 
-        match seek_mode {
-            SeekMode::Fast => {
-                args.extend([
-                    "-ss".to_string(),
-                    start_time,
-                    "-t".to_string(),
-                    duration_str,
-                    "-i".to_string(),
-                    input_path.to_string(),
-                ]);
-            }
-            SeekMode::Balanced => {
-                let pre_seek = (range.start_seconds - BALANCED_PAD_SECONDS).max(0.0);
-                let post_seek = range.start_seconds - pre_seek;
-                let pre_seek_str = format!("{:.3}", pre_seek);
-                let post_seek_str = format!("{:.3}", post_seek);
+        if use_fast_copy {
+            args.extend([
+                "-ss".to_string(),
+                start_time,
+                "-t".to_string(),
+                duration_str,
+                "-i".to_string(),
+                input_path.to_string(),
+                "-map".to_string(),
+                "0".to_string(),
+                "-map".to_string(),
+                "-0:v:m:attached_pic".to_string(),
+                "-c".to_string(),
+                "copy".to_string(),
+                "-avoid_negative_ts".to_string(),
+                "1".to_string(),
+                "-reset_timestamps".to_string(),
+                "1".to_string(),
+                output_file.clone(),
+            ]);
+        } else {
+            match seek_mode {
+                SeekMode::Fast => {
+                    args.extend([
+                        "-ss".to_string(),
+                        start_time,
+                        "-t".to_string(),
+                        duration_str,
+                        "-i".to_string(),
+                        input_path.to_string(),
+                    ]);
+                }
+                SeekMode::Balanced => {
+                    let pre_seek = (range.start_seconds - BALANCED_PAD_SECONDS).max(0.0);
+                    let post_seek = range.start_seconds - pre_seek;
+                    let pre_seek_str = format!("{:.3}", pre_seek);
+                    let post_seek_str = format!("{:.3}", post_seek);
 
-                args.extend([
-                    "-ss".to_string(),
-                    pre_seek_str,
-                    "-i".to_string(),
-                    input_path.to_string(),
-                    "-ss".to_string(),
-                    post_seek_str,
-                    "-t".to_string(),
-                    duration_str,
-                ]);
+                    args.extend([
+                        "-ss".to_string(),
+                        pre_seek_str,
+                        "-i".to_string(),
+                        input_path.to_string(),
+                        "-ss".to_string(),
+                        post_seek_str,
+                        "-t".to_string(),
+                        duration_str,
+                    ]);
+                }
+                SeekMode::Accurate => {
+                    args.extend([
+                        "-i".to_string(),
+                        input_path.to_string(),
+                        "-ss".to_string(),
+                        start_time,
+                        "-to".to_string(),
+                        end_time,
+                    ]);
+                }
             }
-            SeekMode::Accurate => {
-                args.extend([
-                    "-i".to_string(),
-                    input_path.to_string(),
-                    "-ss".to_string(),
-                    start_time,
-                    "-to".to_string(),
-                    end_time,
-                ]);
-            }
+
+            args.extend([
+                "-map".to_string(),
+                "0".to_string(),
+                "-map".to_string(),
+                "-0:v:m:attached_pic".to_string(),
+                "-c:v".to_string(),
+                "libx264".to_string(),
+                "-c:a".to_string(),
+                "aac".to_string(),
+                "-c:s".to_string(),
+                "copy".to_string(),
+                "-c:d".to_string(),
+                "copy".to_string(),
+                "-preset".to_string(),
+                "veryfast".to_string(),
+                "-crf".to_string(),
+                "18".to_string(),
+                "-reset_timestamps".to_string(),
+                "1".to_string(),
+                output_file.clone(),
+            ]);
         }
-
-        args.extend([
-            "-map".to_string(),
-            "0".to_string(),
-            "-map".to_string(),
-            "-0:v:m:attached_pic".to_string(),
-            "-c:v".to_string(),
-            "libx264".to_string(),
-            "-c:a".to_string(),
-            "aac".to_string(),
-            "-c:s".to_string(),
-            "copy".to_string(),
-            "-c:d".to_string(),
-            "copy".to_string(),
-            "-preset".to_string(),
-            "veryfast".to_string(),
-            "-crf".to_string(),
-            "18".to_string(),
-            "-reset_timestamps".to_string(),
-            "1".to_string(),
-            output_file.clone(),
-        ]);
 
         let output = app_handle
             .shell()

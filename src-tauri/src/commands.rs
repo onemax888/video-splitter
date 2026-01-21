@@ -69,11 +69,19 @@ pub async fn split_video_by_ranges_command(
     output_dir: String,
     ranges: Vec<TimeRange>,
     seek_mode: SeekMode,
+    fast_copy_threshold_seconds: Option<u32>,
     intro: Option<AppendSource>,
     outro: Option<AppendSource>,
 ) -> Result<SplitResult, AppError> {
     if intro.is_none() && outro.is_none() {
-        split_video_by_ranges(&app_handle, &input_path, &output_dir, ranges, seek_mode)
+        split_video_by_ranges(
+            &app_handle,
+            &input_path,
+            &output_dir,
+            ranges,
+            seek_mode,
+            fast_copy_threshold_seconds,
+        )
             .await
             .map_err(AppError::from_message)
     } else {

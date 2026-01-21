@@ -74,6 +74,15 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
         'seek.balancedDesc': '速度和准确度折中，通常偏差更小。',
         'seek.accurateDesc': '切点最准确，但处理速度较慢。',
 
+        'range.fastCopy.label': '长切片加速',
+        'range.fastCopy.desc': '超过该时长的片段将使用无损快速(关键帧)切分，时长略有几秒偏差。',
+        'range.fastCopy.disabledDesc': '片头/片尾已启用，长片段快速不可用。',
+        'range.fastCopy.optionOff': '关闭',
+        'range.fastCopy.option10': '10分钟',
+        'range.fastCopy.option20': '20分钟',
+        'range.fastCopy.option30': '30分钟',
+        'range.fastCopy.option60': '1小时',
+
         'append.intro': '🎬 片头',
         'append.outro': '🎬 片尾',
         'append.filterImage': '图片',
@@ -259,6 +268,15 @@ export const MESSAGES: Record<Locale, Record<string, string>> = {
         'seek.fastDesc': 'Fastest, cut points may be off by a few seconds.',
         'seek.balancedDesc': 'Balanced speed and accuracy, usually smaller drift.',
         'seek.accurateDesc': 'Most accurate, but slower.',
+
+        'range.fastCopy.label': 'Long segment boost',
+        'range.fastCopy.desc': 'Segments longer than this use stream copy (keyframes); duration may drift by a few seconds.',
+        'range.fastCopy.disabledDesc': 'Intro/outro is enabled; long-segment fast mode is unavailable.',
+        'range.fastCopy.optionOff': 'Off',
+        'range.fastCopy.option10': '10 min',
+        'range.fastCopy.option20': '20 min',
+        'range.fastCopy.option30': '30 min',
+        'range.fastCopy.option60': '1 hour',
 
         'append.intro': '🎬 Intro',
         'append.outro': '🎬 Outro',

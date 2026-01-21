@@ -85,7 +85,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
     const [batchText, setBatchText] = useState('');
     const [batchError, setBatchError] = useState<string | null>(null);
     const [batchOptions, setBatchOptions] = useState({
-        merge: true,
+        merge: false,
         clamp: true,
         ignoreInvalid: true,
     });
@@ -696,7 +696,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
         const merged: { startSeconds: number; endSeconds: number }[] = [];
         sorted.forEach((range) => {
             const last = merged[merged.length - 1];
-            if (last && range.startSeconds <= last.endSeconds) {
+            if (last && range.startSeconds < last.endSeconds) {
                 last.endSeconds = Math.max(last.endSeconds, range.endSeconds);
             } else {
                 merged.push({ ...range });

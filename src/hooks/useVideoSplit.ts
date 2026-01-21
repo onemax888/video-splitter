@@ -116,6 +116,7 @@ export function useVideoSplit() {
         intro?: AppendSource | null,
         outro?: AppendSource | null,
         seekMode: SeekMode = 'accurate',
+        fastCopyThresholdSeconds?: number,
     ) => {
         setIsProcessing(true);
         setError(null);
@@ -139,6 +140,7 @@ export function useVideoSplit() {
                 intro,
                 outro,
                 seekMode,
+                fastCopyThresholdSeconds,
             });
             setResult(splitResult);
         } catch (err) {

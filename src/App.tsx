@@ -41,6 +41,15 @@ function App() {
   const [introSource, setIntroSource] = useState<AppendSource | null>(null);
   const [outroSource, setOutroSource] = useState<AppendSource | null>(null);
   const [seekMode, setSeekMode] = useState<SeekMode>('balanced');
+  const [fastCopyThresholdMinutes, setFastCopyThresholdMinutes] = useState(20);
+
+  const FAST_COPY_THRESHOLD_OPTIONS = [
+    { minutes: 0, label: t('range.fastCopy.optionOff') },
+    { minutes: 10, label: t('range.fastCopy.option10') },
+    { minutes: 20, label: t('range.fastCopy.option20') },
+    { minutes: 30, label: t('range.fastCopy.option30') },
+    { minutes: 60, label: t('range.fastCopy.option60') },
+  ];
 
   const {
     videoInfo,
@@ -108,7 +117,15 @@ function App() {
     if (splitMode === 'interval') {
       await splitVideo(selectedFile, outputDir, segmentDuration, intro, outro);
     } else {
-      await splitVideoByRanges(selectedFile, outputDir, timeRanges, intro, outro, effectiveSeekMode);
+      await splitVideoByRanges(
+        selectedFile,
+        outputDir,
+        timeRanges,
+        intro,
+        outro,
+        effectiveSeekMode,
+        fastCopyThresholdMinutes * 60,
+      );
     }
   };
 
@@ -143,6 +160,7 @@ function App() {
 
   const hasAppendSources = !!(introSource?.path || outroSource?.path);
   const effectiveSeekMode: SeekMode = hasAppendSources ? 'fast' : seekMode;
+  const isFastCopyDisabled = isProcessing || hasAppendSources;
 
   const canSplit = selectedFile && outputDir && videoInfo && !isProcessing && !isLoading &&
     isAppendReady(introSource) && isAppendReady(outroSource) &&
@@ -350,6 +368,38 @@ function App() {
                     {t('seek.accurateDesc')}
                   </p>
                 )}
+              </div>
+            )}
+
+            {splitMode === 'ranges' && (
+              <div className="space-y-2">
+                <div className="flex items-center space-x-4">
+                  <label className="text-sm font-medium text-slate-600 dark:text-slate-300 w-24">
+                    {t('range.fastCopy.label')}
+                  </label>
+                  <div className="flex rounded-lg overflow-hidden border border-slate-300 dark:border-slate-600">
+                    {FAST_COPY_THRESHOLD_OPTIONS.map((option) => (
+                      <button
+                        key={option.minutes}
+                        onClick={() => setFastCopyThresholdMinutes(option.minutes)}
+                        disabled={isFastCopyDisabled}
+                        className={`
+                          px-4 py-2 text-sm font-medium transition-all duration-200
+                          ${fastCopyThresholdMinutes === option.minutes
+                            ? 'bg-primary-600 text-white'
+                            : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                          }
+                          ${isFastCopyDisabled ? 'opacity-50 cursor-not-allowed' : ''}
+                        `}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 pl-28">
+                  {hasAppendSources ? t('range.fastCopy.disabledDesc') : t('range.fastCopy.desc')}
+                </p>
               </div>
             )}
 
