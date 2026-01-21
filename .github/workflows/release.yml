@@ -5,12 +5,23 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Build target platform'
+        type: choice
+        default: all
+        options:
+          - all
+          - windows
+          - macos
+          - linux
 
 permissions:
   contents: write
 
 jobs:
   build:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.platform == 'all' || matrix.os == github.event.inputs.platform }}
     strategy:
       fail-fast: false
       matrix:
@@ -18,15 +29,19 @@ jobs:
           - platform: 'macos-latest'
             args: '--target aarch64-apple-darwin'
             name: 'macOS-ARM64'
+            os: macos
           - platform: 'macos-latest'
             args: '--target x86_64-apple-darwin'
             name: 'macOS-Intel'
+            os: macos
           - platform: 'ubuntu-22.04'
             args: ''
             name: 'Linux'
+            os: linux
           - platform: 'windows-latest'
             args: ''
             name: 'Windows'
+            os: windows
 
     runs-on: ${{ matrix.platform }}
     
@@ -71,7 +86,12 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build the app
+      - name: Build the app (non-tag)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: npm run tauri build -- ${{ matrix.args }}
+
+      - name: Build the app (tag/release)
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -94,6 +114,13 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Upload Windows artifacts (manual, non-tag)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'windows' && !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Video-Clipping-windows-${{ github.sha }}
+          path: src-tauri/target/release/bundle/**
 
   # NOTE: Universal build disabled for now
   # build-macos-universal:

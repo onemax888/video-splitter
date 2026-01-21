@@ -55,6 +55,8 @@ function App() {
   } = useVideoSplit();
 
   const errorMessage = error ? formatAppError(error, t) : '';
+  const errorDetail = error?.detail
+    || (error?.message && error.message !== errorMessage ? error.message : undefined);
 
   // Set default output directory to same as input file
   useEffect(() => {
@@ -410,6 +412,31 @@ function App() {
             <p className="text-red-500 dark:text-red-400 text-sm">
               {t('app.error', { message: errorMessage })}
             </p>
+            {(error.code || errorDetail) && (
+              <details className="mt-2 text-xs text-red-500 dark:text-red-400">
+                <summary className="cursor-pointer select-none text-red-500/90 dark:text-red-300">
+                  {t('app.errorDetails')}
+                </summary>
+                <div className="mt-2 space-y-2">
+                  {error.code && (
+                    <p className="text-red-500/90 dark:text-red-300">
+                      <span className="text-red-500/70 dark:text-red-300/70">{t('app.errorCode')}:</span>{' '}
+                      <code className="bg-red-500/10 dark:bg-red-900/30 px-1 rounded">{error.code}</code>
+                    </p>
+                  )}
+                  {errorDetail && (
+                    <div>
+                      <p className="text-red-500/70 dark:text-red-300/70 mb-1">
+                        {t('app.errorDetail')}:
+                      </p>
+                      <pre className="whitespace-pre-wrap break-words rounded-lg border border-red-500/20 bg-red-500/5 dark:bg-red-900/20 p-2 text-red-500/90 dark:text-red-200/90">
+                        {errorDetail}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </details>
+            )}
           </div>
         )}
 
