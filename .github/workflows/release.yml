@@ -21,27 +21,17 @@ permissions:
 
 jobs:
   build:
-    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.platform == 'all' || matrix.os == github.event.inputs.platform }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - platform: 'macos-latest'
-            args: '--target aarch64-apple-darwin'
-            name: 'macOS-ARM64'
-            os: macos
-          - platform: 'macos-latest'
-            args: '--target x86_64-apple-darwin'
-            name: 'macOS-Intel'
-            os: macos
-          - platform: 'ubuntu-22.04'
-            args: ''
-            name: 'Linux'
-            os: linux
-          - platform: 'windows-latest'
-            args: ''
-            name: 'Windows'
-            os: windows
+      matrix: ${{ fromJSON(
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'windows')
+          && '{"include":[{"platform":"windows-latest","args":"","name":"Windows","os":"windows"}]}'
+          || (github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'macos')
+          && '{"include":[{"platform":"macos-latest","args":"--target aarch64-apple-darwin","name":"macOS-ARM64","os":"macos"},{"platform":"macos-latest","args":"--target x86_64-apple-darwin","name":"macOS-Intel","os":"macos"}]}'
+          || (github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'linux')
+          && '{"include":[{"platform":"ubuntu-22.04","args":"","name":"Linux","os":"linux"}]}'
+          || '{"include":[{"platform":"macos-latest","args":"--target aarch64-apple-darwin","name":"macOS-ARM64","os":"macos"},{"platform":"macos-latest","args":"--target x86_64-apple-darwin","name":"macOS-Intel","os":"macos"},{"platform":"ubuntu-22.04","args":"","name":"Linux","os":"linux"},{"platform":"windows-latest","args":"","name":"Windows","os":"windows"}]}'
+      ) }}
 
     runs-on: ${{ matrix.platform }}
     
