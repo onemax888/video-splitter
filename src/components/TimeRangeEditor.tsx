@@ -10,6 +10,7 @@ export interface TimeRange {
     id: string;
     startTime: number;
     endTime: number;
+    label?: string;
 }
 
 interface TimeRangeEditorProps {
@@ -48,6 +49,7 @@ interface BatchParseLine {
     raw: string;
     startSeconds: number | null;
     endSeconds: number | null;
+    label?: string;
     error?: string;
     clamped?: boolean;
 }
@@ -152,10 +154,27 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                 return;
             }
 
-            const hasSeparator = /[-~—–,]/.test(line);
+            const atIndex = line.lastIndexOf('@');
+            const rangePart = atIndex >= 0 ? line.slice(0, atIndex).trim() : line;
+            const labelPart = atIndex >= 0 ? line.slice(atIndex + 1).trim() : '';
+            const label = labelPart ? labelPart : undefined;
+
+            if (!rangePart) {
+                results.push({
+                    lineNumber: index + 1,
+                    raw: line,
+                    startSeconds: null,
+                    endSeconds: null,
+                    label,
+                    error: t('timeRange.batch.errorMissingRange'),
+                });
+                return;
+            }
+
+            const hasSeparator = /[-~—–,]/.test(rangePart);
             const tokens = hasSeparator
-                ? line.split(/\s*(?:-|~|,|—|–)\s*/).filter(Boolean)
-                : line.split(/\s+/).filter(Boolean);
+                ? rangePart.split(/\s*(?:-|~|,|—|–)\s*/).filter(Boolean)
+                : rangePart.split(/\s+/).filter(Boolean);
 
             if (tokens.length < 2) {
                 results.push({
@@ -163,6 +182,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                     raw: line,
                     startSeconds: null,
                     endSeconds: null,
+                    label,
                     error: t('timeRange.batch.errorMissingRange'),
                 });
                 return;
@@ -177,6 +197,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                     raw: line,
                     startSeconds: start,
                     endSeconds: end,
+                    label,
                     error: t('timeRange.batch.errorFormat'),
                 });
                 return;
@@ -188,6 +209,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                     raw: line,
                     startSeconds: start,
                     endSeconds: end,
+                    label,
                     error: t('timeRange.batch.errorEndAfterStart'),
                 });
                 return;
@@ -211,6 +233,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                     raw: line,
                     startSeconds: finalStart,
                     endSeconds: finalEnd,
+                    label,
                     error: t('timeRange.batch.errorOutOfRange'),
                 });
                 return;
@@ -222,6 +245,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                     raw: line,
                     startSeconds: finalStart,
                     endSeconds: finalEnd,
+                    label,
                     error: t('timeRange.batch.errorEndAfterStart'),
                 });
                 return;
@@ -232,6 +256,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                 raw: line,
                 startSeconds: finalStart,
                 endSeconds: finalEnd,
+                label,
                 clamped,
             });
         });
@@ -246,6 +271,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
             .map((item) => ({
                 startSeconds: item.startSeconds as number,
                 endSeconds: item.endSeconds as number,
+                label: item.label,
             })),
         [batchPreview]
     );
@@ -717,12 +743,25 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
             return;
         }
 
-        const normalized = batchOptions.merge ? mergeRanges(validRanges) : validRanges;
-        const nextRanges: TimeRange[] = normalized.map((item) => ({
-            id: crypto.randomUUID(),
-            startTime: item.startSeconds,
-            endTime: item.endSeconds,
-        }));
+        let nextRanges: TimeRange[] = [];
+        if (batchOptions.merge) {
+            const normalized = mergeRanges(validRanges.map((item) => ({
+                startSeconds: item.startSeconds,
+                endSeconds: item.endSeconds,
+            })));
+            nextRanges = normalized.map((item) => ({
+                id: crypto.randomUUID(),
+                startTime: item.startSeconds,
+                endTime: item.endSeconds,
+            }));
+        } else {
+            nextRanges = validRanges.map((item) => ({
+                id: crypto.randomUUID(),
+                startTime: item.startSeconds,
+                endTime: item.endSeconds,
+                label: item.label || undefined,
+            }));
+        }
 
         if (mode === 'replace') {
             onSetRanges(nextRanges);
@@ -981,6 +1020,20 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                             ({formatDuration(range.endTime - range.startTime, locale)})
                                         </span>
                                     </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs text-slate-500 dark:text-slate-500">
+                                            {t('timeRange.label')}
+                                        </span>
+                                        <input
+                                            type="text"
+                                            value={range.label ?? ''}
+                                            onChange={(e) => onUpdateRange(range.id, { label: e.target.value })}
+                                            onBlur={(e) => onUpdateRange(range.id, { label: e.target.value.trim() || undefined })}
+                                            disabled={isUiDisabled}
+                                            placeholder={t('timeRange.labelPlaceholder')}
+                                            className="w-36 px-2 py-1 text-xs rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30 disabled:opacity-60"
+                                        />
+                                    </div>
                                 </div>
                                 <div className="flex items-center gap-1">
                                     <button
@@ -1052,7 +1105,7 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                     <div className="flex items-center justify-between h-6">
                                         <label className="text-xs font-medium text-slate-600 dark:text-slate-300 leading-none">{t('timeRange.batch.inputLabel')}</label>
                                         <button
-                                            onClick={() => setBatchText(`00:05:00 00:07:00\n01:05:00 01:10:00\n02:15:30 02:17:40`)}
+                                        onClick={() => setBatchText(`00:05:00 00:07:00@片段1\n01:05:00 01:10:00@片段2\n02:15:30 02:17:40@片段3`)}
                                             className="text-[11px] text-primary-500 hover:text-primary-600 leading-none"
                                         >
                                             {t('timeRange.batch.fillExample')}
@@ -1095,6 +1148,9 @@ const TimeRangeEditor = forwardRef(function TimeRangeEditor({
                                                             <span className="flex-1 text-right">
                                                                 {formatTime(item.startSeconds || 0)} → {formatTime(item.endSeconds || 0)}
                                                                 {durationSeconds > 0 && ` (${formatDuration(durationSeconds, locale)})`}
+                                                                {item.label && (
+                                                                    <span className="ml-2 text-slate-400 dark:text-slate-500">@{item.label}</span>
+                                                                )}
                                                             </span>
                                                         )}
                                                     </div>

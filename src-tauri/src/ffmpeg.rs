@@ -864,6 +864,7 @@ fn build_ranges_from_interval(total_duration: f64, segment_duration: u32) -> Vec
         ranges.push(TimeRange {
             start_seconds: start,
             end_seconds: end,
+            label: None,
         });
         start = end;
     }
@@ -881,6 +882,49 @@ fn build_concat_filter(pairs: &[(String, String)]) -> String {
         pairs.len()
     ));
     filter
+}
+
+fn sanitize_segment_label(label: &str) -> Option<String> {
+    let trimmed = label.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut cleaned = String::new();
+    for ch in trimmed.chars() {
+        if ch.is_whitespace() {
+            cleaned.push('_');
+            continue;
+        }
+        if ch.is_control() {
+            continue;
+        }
+        match ch {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => continue,
+            _ => cleaned.push(ch),
+        }
+    }
+
+    let cleaned = cleaned.trim_matches('.');
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned.to_string())
+    }
+}
+
+fn build_segment_filename(
+    output_dir: &str,
+    index: usize,
+    extension: &str,
+    label: Option<&str>,
+) -> String {
+    let label_suffix = label
+        .and_then(sanitize_segment_label)
+        .map(|value| format!("_{}", value))
+        .unwrap_or_default();
+
+    format!("{}/{:03}{}.{}", output_dir, index, label_suffix, extension)
 }
 
 pub async fn split_video_with_append(
@@ -916,10 +960,6 @@ pub async fn split_video_with_append(
     };
 
     let path = std::path::Path::new(input_path);
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("video");
     let extension = path
         .extension()
         .and_then(|s| s.to_str())
@@ -943,7 +983,12 @@ pub async fn split_video_with_append(
         };
         let _ = app_handle.emit("split-progress", &progress);
 
-        let output_file = format!("{}/{}_{:03}.{}", output_dir, stem, i, extension);
+        let output_file = build_segment_filename(
+            &output_dir,
+            i,
+            extension,
+            range.label.as_deref(),
+        );
         let start_time = format!("{:.3}", range.start_seconds);
         let duration_str = format!("{:.3}", segment_len);
         let segment_start = Instant::now();
@@ -1097,10 +1142,6 @@ pub async fn split_video(
     let output_dir = build_batch_output_dir(output_dir, input_path)?;
 
     let path = std::path::Path::new(input_path);
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("video");
     let extension = path
         .extension()
         .and_then(|s| s.to_str())
@@ -1114,7 +1155,7 @@ pub async fn split_video(
     };
     let _ = app_handle.emit("split-progress", &progress);
 
-    let output_pattern = format!("{}/{}_%03d.{}", output_dir, stem, extension);
+    let output_pattern = format!("{}/%03d.{}", output_dir, extension);
 
     let output = app_handle
         .shell()
@@ -1144,7 +1185,7 @@ pub async fn split_video(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let first_file = format!("{}/{}_{:03}.{}", output_dir, stem, 0, extension);
+        let first_file = format!("{}/{:03}.{}", output_dir, 0, extension);
         if !std::path::Path::new(&first_file).exists() {
             return Err(format!("FFmpeg failed: {}", stderr));
         }
@@ -1152,7 +1193,7 @@ pub async fn split_video(
 
     let mut output_files = Vec::new();
     for i in 0..total_segments + 5 {
-        let file_path = format!("{}/{}_{:03}.{}", output_dir, stem, i, extension);
+        let file_path = format!("{}/{:03}.{}", output_dir, i, extension);
         if std::path::Path::new(&file_path).exists() {
             output_files.push(file_path);
         } else {
@@ -1189,6 +1230,7 @@ pub async fn split_video(
 pub struct TimeRange {
     pub start_seconds: f64,
     pub end_seconds: f64,
+    pub label: Option<String>,
 }
 
 pub async fn split_video_by_ranges(
@@ -1202,10 +1244,6 @@ pub async fn split_video_by_ranges(
     let overall_start = Instant::now();
     let output_dir = build_batch_output_dir(output_dir, input_path)?;
     let path = std::path::Path::new(input_path);
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("video");
     let extension = path
         .extension()
         .and_then(|s| s.to_str())
@@ -1234,7 +1272,12 @@ pub async fn split_video_by_ranges(
         };
         let _ = app_handle.emit("split-progress", &progress);
 
-        let output_file = format!("{}/{}_{:03}.{}", output_dir, stem, i, extension);
+        let output_file = build_segment_filename(
+            &output_dir,
+            i,
+            extension,
+            range.label.as_deref(),
+        );
         let start_time = format!("{:.3}", range.start_seconds);
         let end_time = format!("{:.3}", range.end_seconds);
         let duration_str = format!("{:.3}", segment_len);
@@ -1253,7 +1296,7 @@ pub async fn split_video_by_ranges(
                 "-map".to_string(),
                 "0".to_string(),
                 "-map".to_string(),
-                "-0:v:m:attached_pic".to_string(),
+                "-0:v:disp:attached_pic".to_string(),
                 "-c".to_string(),
                 "copy".to_string(),
                 "-avoid_negative_ts".to_string(),
@@ -1307,7 +1350,7 @@ pub async fn split_video_by_ranges(
                 "-map".to_string(),
                 "0".to_string(),
                 "-map".to_string(),
-                "-0:v:m:attached_pic".to_string(),
+                "-0:v:disp:attached_pic".to_string(),
                 "-c:v".to_string(),
                 "libx264".to_string(),
                 "-c:a".to_string(),

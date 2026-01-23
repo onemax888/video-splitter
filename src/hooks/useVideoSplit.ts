@@ -37,6 +37,7 @@ interface TimeRange {
     id: string;
     startTime: number;
     endTime: number;
+    label?: string;
 }
 
 export function useVideoSplit() {
@@ -129,10 +130,14 @@ export function useVideoSplit() {
         });
 
         try {
-            const rangesPayload = ranges.map(r => ({
-                start_seconds: r.startTime,
-                end_seconds: r.endTime,
-            }));
+            const rangesPayload = ranges.map(r => {
+                const label = r.label?.trim();
+                return {
+                    start_seconds: r.startTime,
+                    end_seconds: r.endTime,
+                    ...(label ? { label } : {}),
+                };
+            });
             const splitResult = await invoke<SplitResult>('split_video_by_ranges_command', {
                 inputPath,
                 outputDir,
