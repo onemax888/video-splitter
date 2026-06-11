@@ -22,6 +22,11 @@
           "name": "ffprobe",
           "sidecar": true,
           "args": true
+        },
+        {
+          "name": "mihomo",
+          "sidecar": true,
+          "args": true
         }
       ]
     }

@@ -1,5 +1,16 @@
+use crate::downloader::{
+    download_remote_video, DownloadProvider, DownloadQuality, RemoteDownloadResult,
+};
 use crate::errors::AppError;
-use crate::ffmpeg::{check_ffmpeg, format_duration, get_video_duration, prepare_hls_source, split_video, split_video_by_ranges, split_video_with_append, AppendSource, PreviewSource, FFmpegStatus, SeekMode, SplitResult, TimeRange, VideoInfo};
+use crate::ffmpeg::{
+    check_ffmpeg, format_duration, get_video_duration, prepare_hls_source, split_video,
+    split_video_by_ranges, split_video_with_append, AppendSource, FFmpegStatus, PreviewSource,
+    SeekMode, SplitResult, TimeRange, VideoInfo,
+};
+use crate::mihomo::{
+    import_proxy_config_from_file, import_proxy_config_from_url, measure_proxy_node_delays,
+    ProxyConfigInfo, ProxyNodeDelay, ProxyOptions,
+};
 use tauri::{AppHandle, Manager};
 
 #[tauri::command]
@@ -21,9 +32,7 @@ pub async fn get_video_info(app_handle: AppHandle, path: String) -> Result<Video
         .unwrap_or("unknown")
         .to_string();
 
-    let file_size = std::fs::metadata(&path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
 
     Ok(VideoInfo {
         path,
@@ -32,6 +41,51 @@ pub async fn get_video_info(app_handle: AppHandle, path: String) -> Result<Video
         filename,
         file_size,
     })
+}
+
+#[tauri::command]
+pub async fn download_remote_video_command(
+    app_handle: AppHandle,
+    url: String,
+    provider: DownloadProvider,
+    quality: DownloadQuality,
+    download_dir: Option<String>,
+    proxy_options: Option<ProxyOptions>,
+) -> Result<RemoteDownloadResult, AppError> {
+    download_remote_video(
+        &app_handle,
+        &url,
+        provider,
+        quality,
+        download_dir,
+        proxy_options,
+    )
+    .await
+    .map_err(AppError::from_message)
+}
+
+#[tauri::command]
+pub async fn import_proxy_config_url_command(url: String) -> Result<ProxyConfigInfo, AppError> {
+    import_proxy_config_from_url(&url)
+        .await
+        .map_err(AppError::from_message)
+}
+
+#[tauri::command]
+pub async fn import_proxy_config_file_command(path: String) -> Result<ProxyConfigInfo, AppError> {
+    import_proxy_config_from_file(&path)
+        .await
+        .map_err(AppError::from_message)
+}
+
+#[tauri::command]
+pub async fn measure_proxy_node_delays_command(
+    app_handle: AppHandle,
+    config_path: String,
+) -> Result<Vec<ProxyNodeDelay>, AppError> {
+    measure_proxy_node_delays(&app_handle, &config_path)
+        .await
+        .map_err(AppError::from_message)
 }
 
 #[tauri::command]
@@ -82,8 +136,8 @@ pub async fn split_video_by_ranges_command(
             seek_mode,
             fast_copy_threshold_seconds,
         )
-            .await
-            .map_err(AppError::from_message)
+        .await
+        .map_err(AppError::from_message)
     } else {
         split_video_with_append(
             &app_handle,
@@ -122,12 +176,14 @@ pub async fn prepare_hls_source_command(
 
 /// Allow a user-selected file or directory for the asset protocol.
 #[tauri::command]
-pub async fn allow_asset_path(app_handle: AppHandle, path: String, is_dir: bool) -> Result<(), String> {
+pub async fn allow_asset_path(
+    app_handle: AppHandle,
+    path: String,
+    is_dir: bool,
+) -> Result<(), String> {
     let scope = app_handle.asset_protocol_scope();
     if is_dir {
-        scope
-            .allow_directory(path, true)
-            .map_err(|e| e.to_string())
+        scope.allow_directory(path, true).map_err(|e| e.to_string())
     } else {
         scope.allow_file(path).map_err(|e| e.to_string())
     }

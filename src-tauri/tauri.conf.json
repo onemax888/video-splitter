@@ -42,7 +42,8 @@
     "targets": "all",
     "externalBin": [
       "binaries/ffmpeg",
-      "binaries/ffprobe"
+      "binaries/ffprobe",
+      "binaries/mihomo"
     ],
     "icon": [
       "icons/32x32.png",

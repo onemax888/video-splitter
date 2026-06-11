@@ -11,8 +11,10 @@ import SplitModeSelector from './components/SplitModeSelector';
 import TimeRangeEditor, { TimeRange } from './components/TimeRangeEditor';
 import AppendMediaSelector from './components/AppendMediaSelector';
 import LanguageToggle from './components/LanguageToggle';
+import RemoteUrlImporter from './components/RemoteUrlImporter';
 import { AppendSource } from './types/append';
 import { SeekMode } from './types/seek';
+import { ProxyOptions, useRemoteDownload } from './hooks/useRemoteDownload';
 import { useVideoSplit } from './hooks/useVideoSplit';
 import { useI18n } from './i18n/I18nProvider';
 import { formatAppError, toAppError } from './utils/appError';
@@ -62,10 +64,17 @@ function App() {
     splitVideo,
     splitVideoByRanges,
   } = useVideoSplit();
+  const {
+    isDownloading,
+    progress: downloadProgress,
+    error: downloadError,
+    download: downloadRemoteVideo,
+  } = useRemoteDownload();
 
-  const errorMessage = error ? formatAppError(error, t) : '';
-  const errorDetail = error?.detail
-    || (error?.message && error.message !== errorMessage ? error.message : undefined);
+  const activeError = downloadError || error;
+  const errorMessage = activeError ? formatAppError(activeError, t) : '';
+  const errorDetail = activeError?.detail
+    || (activeError?.message && activeError.message !== errorMessage ? activeError.message : undefined);
 
   // Set default output directory to same as input file
   useEffect(() => {
@@ -80,6 +89,19 @@ function App() {
     setShowPreview(false);
     setTimeRanges([]);
     await loadVideoInfo(path);
+  };
+
+  const handleRemoteDownload = async (
+    url: string,
+    provider: 'auto' | 'meowload' | 'onccg',
+    quality: 'lowest' | 'best',
+    downloadDir: string | null,
+    proxyOptions: ProxyOptions | null,
+  ) => {
+    const downloadResult = await downloadRemoteVideo(url, provider, quality, downloadDir, proxyOptions);
+    setOutputDir(downloadResult.outputDir);
+    await handleFileSelect(downloadResult.videoPath);
+    setShowPreview(true);
   };
 
   const handleAddRange = (range: TimeRange) => {
@@ -162,7 +184,7 @@ function App() {
   const effectiveSeekMode: SeekMode = hasAppendSources ? 'fast' : seekMode;
   const isFastCopyDisabled = isProcessing || hasAppendSources;
 
-  const canSplit = selectedFile && outputDir && videoInfo && !isProcessing && !isLoading &&
+  const canSplit = selectedFile && outputDir && videoInfo && !isProcessing && !isLoading && !isDownloading &&
     isAppendReady(introSource) && isAppendReady(outroSource) &&
     (splitMode === 'interval' ? segmentDuration > 0 : timeRanges.length > 0);
 
@@ -266,7 +288,14 @@ function App() {
           onFileSelect={handleFileSelect}
           selectedFile={selectedFile}
           videoInfo={videoInfo}
+          disabled={isProcessing || isDownloading}
+        />
+
+        <RemoteUrlImporter
           disabled={isProcessing}
+          isDownloading={isDownloading}
+          progress={downloadProgress}
+          onDownload={handleRemoteDownload}
         />
 
         {/* Video Preview Button & Player */}
@@ -457,21 +486,21 @@ function App() {
         )}
 
         {/* Error */}
-        {error && (
+        {activeError && (
           <div className="glass rounded-xl p-4 border border-red-500/30 bg-red-900/10 dark:bg-red-900/10">
             <p className="text-red-500 dark:text-red-400 text-sm">
               {t('app.error', { message: errorMessage })}
             </p>
-            {(error.code || errorDetail) && (
+            {(activeError.code || errorDetail) && (
               <details className="mt-2 text-xs text-red-500 dark:text-red-400">
                 <summary className="cursor-pointer select-none text-red-500/90 dark:text-red-300">
                   {t('app.errorDetails')}
                 </summary>
                 <div className="mt-2 space-y-2">
-                  {error.code && (
+                  {activeError.code && (
                     <p className="text-red-500/90 dark:text-red-300">
                       <span className="text-red-500/70 dark:text-red-300/70">{t('app.errorCode')}:</span>{' '}
-                      <code className="bg-red-500/10 dark:bg-red-900/30 px-1 rounded">{error.code}</code>
+                      <code className="bg-red-500/10 dark:bg-red-900/30 px-1 rounded">{activeError.code}</code>
                     </p>
                   )}
                   {errorDetail && (

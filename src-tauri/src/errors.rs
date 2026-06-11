@@ -24,7 +24,10 @@ fn map_error_code(message: &str) -> &'static str {
     let lower = message.to_lowercase();
 
     if lower.contains("ffmpeg") {
-        if lower.contains("not found") || lower.contains("locate ffmpeg") || lower.contains("ffmpeg sidecar") {
+        if lower.contains("not found")
+            || lower.contains("locate ffmpeg")
+            || lower.contains("ffmpeg sidecar")
+        {
             return "FFMPEG_NOT_FOUND";
         }
         return "FFMPEG_FAILED";
@@ -42,12 +45,24 @@ fn map_error_code(message: &str) -> &'static str {
         return "INVALID_RANGE";
     }
 
-    if message.contains("输出目录") || lower.contains("output dir") || lower.contains("output directory") {
+    if message.contains("输出目录")
+        || lower.contains("output dir")
+        || lower.contains("output directory")
+    {
         return "OUTPUT_DIR_FAILED";
     }
 
     if message.contains("片头") || message.contains("片尾") || lower.contains("append") {
         return "APPEND_INVALID";
+    }
+
+    if message.contains("下载")
+        || message.contains("解析")
+        || lower.contains("download")
+        || lower.contains("meowload")
+        || lower.contains("onccg")
+    {
+        return "DOWNLOAD_FAILED";
     }
 
     "UNKNOWN"
