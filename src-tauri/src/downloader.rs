@@ -1,25 +1,30 @@
-use crate::mihomo::{start_mihomo_proxy, ProxyOptions};
+use crate::mihomo::{start_mihomo_proxy, MihomoSession, ProxyOptions};
 use chrono::Local;
 use reqwest::header::CONTENT_LENGTH;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_shell::ShellExt;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 const ONCCG_API_ENDPOINT: &str = "https://api.onccg.com/api/";
 const ONCCG_DEFAULT_TYPE: &str = "dsp";
 const ONCCG_DEFAULT_KEY: &str = "aWvnXIfmhWBSJD3DGk";
+const MEOWLOAD_API_ENDPOINT: &str = "https://api.meowload.net/openapi/extract/post";
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36";
+const CANCELLED_MESSAGE: &str = "下载已取消";
+static REMOTE_DOWNLOAD_CANCELLED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "camelCase")]
 pub enum DownloadProvider {
-    Auto,
-    Meowload,
-    Onccg,
+    MeowloadCli,
+    MeowloadApi,
+    OnccgApi,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -64,9 +69,11 @@ struct DownloadContext {
 #[derive(Debug, Clone)]
 struct MediaChoice {
     url: String,
+    audio_url: Option<String>,
     label: Option<String>,
     quality: Option<u32>,
     ext: String,
+    audio_ext: Option<String>,
 }
 
 pub async fn download_remote_video(
@@ -81,34 +88,24 @@ pub async fn download_remote_video(
     if source_url.is_empty() {
         return Err("请输入视频链接".to_string());
     }
+    REMOTE_DOWNLOAD_CANCELLED.store(false, Ordering::SeqCst);
 
     match provider {
-        DownloadProvider::Auto => {
-            match download_with_meowload(app_handle, source_url, quality, download_dir.as_deref())
+        DownloadProvider::MeowloadCli => {
+            download_with_meowload_cli(app_handle, source_url, quality, download_dir.as_deref())
                 .await
-            {
-                Ok(result) => Ok(result),
-                Err(meowload_error) => match download_with_onccg(
-                    app_handle,
-                    source_url,
-                    quality,
-                    download_dir.as_deref(),
-                    proxy_options.as_ref(),
-                )
-                .await
-                {
-                    Ok(result) => Ok(result),
-                    Err(onccg_error) => Err(format!(
-                        "自动下载失败。\nmeowload: {}\nONCCG: {}",
-                        meowload_error, onccg_error
-                    )),
-                },
-            }
         }
-        DownloadProvider::Meowload => {
-            download_with_meowload(app_handle, source_url, quality, download_dir.as_deref()).await
+        DownloadProvider::MeowloadApi => {
+            download_with_meowload_api(
+                app_handle,
+                source_url,
+                quality,
+                download_dir.as_deref(),
+                proxy_options.as_ref(),
+            )
+            .await
         }
-        DownloadProvider::Onccg => {
+        DownloadProvider::OnccgApi => {
             download_with_onccg(
                 app_handle,
                 source_url,
@@ -121,7 +118,19 @@ pub async fn download_remote_video(
     }
 }
 
-async fn download_with_meowload(
+pub fn cancel_remote_download() {
+    REMOTE_DOWNLOAD_CANCELLED.store(true, Ordering::SeqCst);
+}
+
+fn ensure_download_not_cancelled() -> Result<(), String> {
+    if REMOTE_DOWNLOAD_CANCELLED.load(Ordering::SeqCst) {
+        Err(CANCELLED_MESSAGE.to_string())
+    } else {
+        Ok(())
+    }
+}
+
+async fn download_with_meowload_cli(
     app_handle: &AppHandle,
     source_url: &str,
     quality: DownloadQuality,
@@ -129,15 +138,17 @@ async fn download_with_meowload(
 ) -> Result<RemoteDownloadResult, String> {
     emit_progress(
         app_handle,
-        DownloadProvider::Meowload,
+        DownloadProvider::MeowloadCli,
         "checking",
         0.0,
         0,
         None,
         "meowload",
     );
+    ensure_download_not_cancelled()?;
 
     let meowload = find_meowload().await?;
+    ensure_download_not_cancelled()?;
     let output = Command::new(&meowload)
         .args(["info", source_url])
         .output()
@@ -148,6 +159,7 @@ async fn download_with_meowload(
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("meowload info 失败: {}", stderr.trim()));
     }
+    ensure_download_not_cancelled()?;
 
     let raw = String::from_utf8_lossy(&output.stdout).to_string();
     let parsed: Value =
@@ -157,7 +169,7 @@ async fn download_with_meowload(
         .and_then(Value::as_str)
         .filter(|s| !s.trim().is_empty())
         .unwrap_or("downloaded-video");
-    let ctx = create_download_context(source_url, title, "meowload", download_dir)?;
+    let ctx = create_download_context(source_url, title, "meowload-cli", download_dir)?;
     write_text(ctx.raw_dir.join("source_url.txt"), source_url).await?;
     write_text(
         ctx.raw_dir.join("meowload_info.json"),
@@ -167,15 +179,13 @@ async fn download_with_meowload(
 
     let choice = choose_meowload_media(&parsed, quality)
         .ok_or_else(|| "meowload 未返回可下载的视频资源".to_string())?;
+    ensure_download_not_cancelled()?;
 
-    let file_name = format!("{}.{}", safe_name(&ctx.title, "video", 120), choice.ext);
-    let video_path = unique_path(ctx.output_dir.join(file_name));
-    download_url_to_file(
+    let video_path = download_meowload_choice(
         app_handle,
-        DownloadProvider::Meowload,
-        &choice.url,
-        &video_path,
-        "downloading",
+        DownloadProvider::MeowloadCli,
+        &ctx,
+        choice,
         None,
     )
     .await?;
@@ -188,13 +198,14 @@ async fn download_with_meowload(
                 .iter()
                 .find_map(|item| item.get("preview_url").and_then(Value::as_str))
         }) {
+        ensure_download_not_cancelled()?;
         let cover_path = unique_path(
             ctx.output_dir
                 .join(format!("{}_cover.jpg", safe_name(&ctx.title, "cover", 120))),
         );
         download_url_to_file(
             app_handle,
-            DownloadProvider::Meowload,
+            DownloadProvider::MeowloadCli,
             preview_url,
             &cover_path,
             "cover",
@@ -211,12 +222,99 @@ async fn download_with_meowload(
 
     save_metadata(
         &ctx,
-        DownloadProvider::Meowload,
+        DownloadProvider::MeowloadCli,
         &video_path,
         cover_path.as_deref(),
     )
     .await?;
-    finish_result(ctx, DownloadProvider::Meowload, video_path, cover_path)
+    finish_result(ctx, DownloadProvider::MeowloadCli, video_path, cover_path)
+}
+
+async fn download_with_meowload_api(
+    app_handle: &AppHandle,
+    source_url: &str,
+    quality: DownloadQuality,
+    download_dir: Option<&str>,
+    proxy_options: Option<&ProxyOptions>,
+) -> Result<RemoteDownloadResult, String> {
+    emit_progress(
+        app_handle,
+        DownloadProvider::MeowloadApi,
+        "parsing",
+        0.0,
+        0,
+        None,
+        "MeowLoad API",
+    );
+
+    let api_key = std::env::var("MEOWLOAD_API_KEY")
+        .or_else(|_| std::env::var("hhm_key"))
+        .map_err(|_| "请先设置 MEOWLOAD_API_KEY 或 hhm_key 环境变量".to_string())?;
+    ensure_download_not_cancelled()?;
+    let proxy_session = start_api_proxy_if_enabled(
+        app_handle,
+        DownloadProvider::MeowloadApi,
+        proxy_options,
+    )
+    .await?;
+    let proxy_url = proxy_session.as_ref().map(|session| session.proxy_url());
+    let client = http_client(proxy_url)?;
+    ensure_download_not_cancelled()?;
+
+    let response = client
+        .post(MEOWLOAD_API_ENDPOINT)
+        .header("x-api-key", api_key.trim())
+        .header("accept-language", "zh")
+        .json(&serde_json::json!({ "url": source_url }))
+        .send()
+        .await
+        .map_err(|e| format!("MeowLoad API 请求失败: {}", e))?;
+    ensure_download_not_cancelled()?;
+    let status = response.status();
+    let raw = response
+        .text()
+        .await
+        .map_err(|e| format!("读取 MeowLoad API 响应失败: {}", e))?;
+    if !status.is_success() {
+        return Err(format!("MeowLoad API HTTP {}: {}", status, raw));
+    }
+
+    let parsed: Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("MeowLoad API 返回内容不是有效 JSON: {}", e))?;
+    let title = parsed
+        .get("text")
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or("downloaded-video");
+    let ctx = create_download_context(source_url, title, "meowload-api", download_dir)?;
+    write_text(ctx.raw_dir.join("source_url.txt"), source_url).await?;
+    write_text(ctx.raw_dir.join("raw_response.txt"), &raw).await?;
+    write_text(
+        ctx.raw_dir.join("extract_response.json"),
+        &pretty_json(&parsed)?,
+    )
+    .await?;
+
+    let choice = choose_meowload_media(&parsed, quality)
+        .ok_or_else(|| "MeowLoad API 未返回可下载的视频资源".to_string())?;
+    ensure_download_not_cancelled()?;
+    let video_path = download_meowload_choice(
+        app_handle,
+        DownloadProvider::MeowloadApi,
+        &ctx,
+        choice,
+        proxy_url,
+    )
+    .await?;
+
+    save_metadata(
+        &ctx,
+        DownloadProvider::MeowloadApi,
+        &video_path,
+        None,
+    )
+    .await?;
+    finish_result(ctx, DownloadProvider::MeowloadApi, video_path, None)
 }
 
 async fn download_with_onccg(
@@ -228,7 +326,7 @@ async fn download_with_onccg(
 ) -> Result<RemoteDownloadResult, String> {
     emit_progress(
         app_handle,
-        DownloadProvider::Onccg,
+        DownloadProvider::OnccgApi,
         "parsing",
         0.0,
         0,
@@ -238,25 +336,16 @@ async fn download_with_onccg(
 
     let api_key = std::env::var("ONCCG_KEY").unwrap_or_else(|_| ONCCG_DEFAULT_KEY.to_string());
     let api_type = std::env::var("ONCCG_TYPE").unwrap_or_else(|_| ONCCG_DEFAULT_TYPE.to_string());
-    let proxy_session = if proxy_options
-        .map(|options| options.enabled)
-        .unwrap_or(false)
-    {
-        emit_progress(
-            app_handle,
-            DownloadProvider::Onccg,
-            "proxy",
-            0.0,
-            0,
-            None,
-            "mihomo",
-        );
-        Some(start_mihomo_proxy(app_handle, proxy_options.expect("proxy options")).await?)
-    } else {
-        None
-    };
+    ensure_download_not_cancelled()?;
+    let proxy_session = start_api_proxy_if_enabled(
+        app_handle,
+        DownloadProvider::OnccgApi,
+        proxy_options,
+    )
+    .await?;
     let proxy_url = proxy_session.as_ref().map(|session| session.proxy_url());
     let client = http_client(proxy_url)?;
+    ensure_download_not_cancelled()?;
 
     let response = client
         .get(ONCCG_API_ENDPOINT)
@@ -268,6 +357,7 @@ async fn download_with_onccg(
         .send()
         .await
         .map_err(|e| format!("ONCCG 请求失败: {}", e))?;
+    ensure_download_not_cancelled()?;
     let status = response.status();
     let raw = response
         .text()
@@ -322,11 +412,12 @@ async fn download_with_onccg(
 
     let choice =
         choose_media(choices, quality).ok_or_else(|| "ONCCG 未返回可下载的视频资源".to_string())?;
+    ensure_download_not_cancelled()?;
     let file_name = format!("{}.{}", safe_name(&ctx.title, "video", 120), choice.ext);
     let video_path = unique_path(ctx.output_dir.join(file_name));
     download_url_to_file(
         app_handle,
-        DownloadProvider::Onccg,
+        DownloadProvider::OnccgApi,
         &choice.url,
         &video_path,
         "downloading",
@@ -339,13 +430,14 @@ async fn download_with_onccg(
         .and_then(Value::as_str)
         .filter(|value| is_http_url(value));
     let cover_path = if let Some(cover_url) = cover_url {
+        ensure_download_not_cancelled()?;
         let cover_path = unique_path(
             ctx.output_dir
                 .join(format!("{}_cover.jpg", safe_name(&ctx.title, "cover", 120))),
         );
         download_url_to_file(
             app_handle,
-            DownloadProvider::Onccg,
+            DownloadProvider::OnccgApi,
             cover_url,
             &cover_path,
             "cover",
@@ -362,12 +454,36 @@ async fn download_with_onccg(
 
     save_metadata(
         &ctx,
-        DownloadProvider::Onccg,
+        DownloadProvider::OnccgApi,
         &video_path,
         cover_path.as_deref(),
     )
     .await?;
-    finish_result(ctx, DownloadProvider::Onccg, video_path, cover_path)
+    finish_result(ctx, DownloadProvider::OnccgApi, video_path, cover_path)
+}
+
+async fn start_api_proxy_if_enabled(
+    app_handle: &AppHandle,
+    provider: DownloadProvider,
+    proxy_options: Option<&ProxyOptions>,
+) -> Result<Option<MihomoSession>, String> {
+    if !proxy_options.map(|options| options.enabled).unwrap_or(false) {
+        return Ok(None);
+    }
+
+    emit_progress(app_handle, provider, "proxy", 0.0, 0, None, "mihomo");
+    let options = proxy_options.expect("checked proxy options");
+    ensure_download_not_cancelled()?;
+    start_mihomo_proxy(app_handle, options).await.map(Some)
+}
+
+fn preferred_media_url(item: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        item.get(*key)
+            .and_then(Value::as_str)
+            .filter(|value| is_http_url(value))
+            .map(ToString::to_string)
+    })
 }
 
 async fn find_meowload() -> Result<String, String> {
@@ -403,9 +519,19 @@ fn choose_meowload_media(value: &Value, quality: DownloadQuality) -> Option<Medi
         if media.get("media_type").and_then(Value::as_str) != Some("video") {
             continue;
         }
-        if let Some(resource_url) = media.get("resource_url").and_then(Value::as_str) {
+        if let Some(resource_url) = preferred_media_url(
+            media,
+            &[
+                "resource_proxy_url",
+                "proxy_url",
+                "video_proxy_url",
+                "audio_proxy_url",
+                "resource_url",
+            ],
+        ) {
             choices.push(MediaChoice {
-                url: resource_url.to_string(),
+                url: resource_url.clone(),
+                audio_url: None,
                 label: Some("resource".to_string()),
                 quality: media
                     .get("quality")
@@ -413,36 +539,45 @@ fn choose_meowload_media(value: &Value, quality: DownloadQuality) -> Option<Medi
                     .map(|v| v as u32)
                     .or(Some(360)),
                 ext: infer_ext(
-                    resource_url,
+                    &resource_url,
                     media.get("video_ext").and_then(Value::as_str),
                     Some("mp4"),
                 ),
+                audio_ext: None,
             });
         }
         if let Some(formats) = media.get("formats").and_then(Value::as_array) {
             for format in formats {
-                let Some(video_url) = format.get("video_url").and_then(Value::as_str) else {
+                let Some(video_url) =
+                    preferred_media_url(format, &["video_proxy_url", "proxy_url", "video_url"])
+                else {
                     continue;
                 };
-                if format.get("separate").and_then(Value::as_i64).unwrap_or(0) != 0 {
-                    continue;
-                }
+                let is_separate = format.get("separate").and_then(Value::as_i64).unwrap_or(0) == 1;
+                let audio_url = is_separate
+                    .then(|| preferred_media_url(format, &["audio_proxy_url", "audio_url"]))
+                    .flatten();
                 let label = format
                     .get("quality_note")
                     .and_then(Value::as_str)
                     .map(ToString::to_string);
                 choices.push(MediaChoice {
-                    url: video_url.to_string(),
+                    url: video_url.clone(),
+                    audio_url,
                     label,
                     quality: format
                         .get("quality")
                         .and_then(Value::as_u64)
                         .map(|v| v as u32),
                     ext: infer_ext(
-                        video_url,
+                        &video_url,
                         format.get("video_ext").and_then(Value::as_str),
                         Some("mp4"),
                     ),
+                    audio_ext: format
+                        .get("audio_ext")
+                        .and_then(Value::as_str)
+                        .map(|value| normalize_ext(value.trim_start_matches('.'))),
                 });
             }
         }
@@ -494,9 +629,11 @@ fn collect_onccg_media(value: &Value, source_url: &str, path: &str, out: &mut Ve
                         let quality = labels.iter().find_map(|label| parse_quality(label));
                         out.push(MediaChoice {
                             url: url.to_string(),
+                            audio_url: None,
                             label,
                             quality,
                             ext: infer_ext(url, None, Some("mp4")),
+                            audio_ext: None,
                         });
                     }
                 }
@@ -533,6 +670,103 @@ fn choose_media(mut choices: Vec<MediaChoice>, quality: DownloadQuality) -> Opti
     }
 }
 
+async fn download_meowload_choice(
+    app_handle: &AppHandle,
+    provider: DownloadProvider,
+    ctx: &DownloadContext,
+    choice: MediaChoice,
+    proxy_url: Option<&str>,
+) -> Result<PathBuf, String> {
+    let safe_title = safe_name(&ctx.title, "video", 120);
+    ensure_download_not_cancelled()?;
+    if let Some(audio_url) = choice.audio_url.as_deref() {
+        let video_path = unique_path(
+            ctx.output_dir
+                .join(format!("{}_video.{}", safe_title, choice.ext)),
+        );
+        download_url_to_file(
+            app_handle,
+            provider,
+            &choice.url,
+            &video_path,
+            "downloading",
+            proxy_url,
+        )
+        .await?;
+        ensure_download_not_cancelled()?;
+
+        let audio_ext = choice.audio_ext.as_deref().unwrap_or("m4a");
+        let audio_path = unique_path(
+            ctx.output_dir
+                .join(format!("{}_audio.{}", safe_title, audio_ext)),
+        );
+        download_url_to_file(
+            app_handle,
+            provider,
+            audio_url,
+            &audio_path,
+            "downloading",
+            proxy_url,
+        )
+        .await?;
+        ensure_download_not_cancelled()?;
+
+        let merged_path = unique_path(ctx.output_dir.join(format!("{}.mp4", safe_title)));
+        merge_video_audio(app_handle, &video_path, &audio_path, &merged_path).await?;
+        Ok(merged_path)
+    } else {
+        let file_name = format!("{}.{}", safe_title, choice.ext);
+        let video_path = unique_path(ctx.output_dir.join(file_name));
+        download_url_to_file(
+            app_handle,
+            provider,
+            &choice.url,
+            &video_path,
+            "downloading",
+            proxy_url,
+        )
+        .await?;
+        Ok(video_path)
+    }
+}
+
+async fn merge_video_audio(
+    app_handle: &AppHandle,
+    video_path: &Path,
+    audio_path: &Path,
+    output_path: &Path,
+) -> Result<(), String> {
+    ensure_download_not_cancelled()?;
+    let video_arg = video_path.to_string_lossy().to_string();
+    let audio_arg = audio_path.to_string_lossy().to_string();
+    let output_arg = output_path.to_string_lossy().to_string();
+    let output = app_handle
+        .shell()
+        .sidecar("ffmpeg")
+        .map_err(|e| format!("FFmpeg sidecar 不可用，无法合并音视频: {}", e))?
+        .args([
+            "-y",
+            "-i",
+            video_arg.as_str(),
+            "-i",
+            audio_arg.as_str(),
+            "-c",
+            "copy",
+            output_arg.as_str(),
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("FFmpeg 合并音视频失败: {}", e))?;
+
+    if output.status.success() {
+        ensure_download_not_cancelled()?;
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("FFmpeg 合并音视频失败: {}", stderr.trim()))
+    }
+}
+
 async fn download_url_to_file(
     app_handle: &AppHandle,
     provider: DownloadProvider,
@@ -541,12 +775,14 @@ async fn download_url_to_file(
     stage: &str,
     proxy_url: Option<&str>,
 ) -> Result<(), String> {
+    ensure_download_not_cancelled()?;
     let client = http_client(proxy_url)?;
     let mut response = client
         .get(url)
         .send()
         .await
         .map_err(|e| format!("下载请求失败: {}", e))?;
+    ensure_download_not_cancelled()?;
     if !response.status().is_success() {
         return Err(format!("下载失败 HTTP {}", response.status()));
     }
@@ -567,11 +803,20 @@ async fn download_url_to_file(
         .map_err(|e| format!("创建文件失败: {}", e))?;
     let mut downloaded = 0_u64;
 
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|e| format!("读取下载数据失败: {}", e))?
-    {
+    let download_result = loop {
+        if let Err(err) = ensure_download_not_cancelled() {
+            break Err(err);
+        }
+        let chunk = response
+            .chunk()
+            .await
+            .map_err(|e| format!("读取下载数据失败: {}", e))?;
+        let Some(chunk) = chunk else {
+            break Ok(());
+        };
+        if let Err(err) = ensure_download_not_cancelled() {
+            break Err(err);
+        }
         file.write_all(&chunk)
             .await
             .map_err(|e| format!("写入下载文件失败: {}", e))?;
@@ -583,11 +828,21 @@ async fn download_url_to_file(
         emit_progress(
             app_handle, provider, stage, percentage, downloaded, total, &display,
         );
+    };
+
+    if let Err(err) = download_result {
+        let _ = file.flush().await;
+        let _ = tokio::fs::remove_file(output_path).await;
+        return Err(err);
     }
 
     file.flush()
         .await
         .map_err(|e| format!("保存下载文件失败: {}", e))?;
+    if let Err(err) = ensure_download_not_cancelled() {
+        let _ = tokio::fs::remove_file(output_path).await;
+        return Err(err);
+    }
     emit_progress(
         app_handle, provider, stage, 100.0, downloaded, total, &display,
     );
@@ -824,9 +1079,11 @@ fn media_choices_json(choices: &[MediaChoice]) -> Value {
             .map(|choice| {
                 serde_json::json!({
                     "url": choice.url,
+                    "audioUrl": choice.audio_url,
                     "label": choice.label,
                     "quality": choice.quality,
                     "ext": choice.ext,
+                    "audioExt": choice.audio_ext,
                 })
             })
             .collect(),

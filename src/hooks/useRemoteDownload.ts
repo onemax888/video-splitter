@@ -4,7 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { AppError } from '../types/error';
 import { toAppError } from '../utils/appError';
 
-export type DownloadProvider = 'auto' | 'meowload' | 'onccg';
+export type DownloadProvider = 'meowloadCli' | 'meowloadApi' | 'onccgApi';
 export type DownloadQuality = 'lowest' | 'best';
 
 export interface ProxyOptions {
@@ -47,6 +47,7 @@ export interface RemoteDownloadProgress {
 
 export function useRemoteDownload() {
     const [isDownloading, setIsDownloading] = useState(false);
+    const [isCanceling, setIsCanceling] = useState(false);
     const [progress, setProgress] = useState<RemoteDownloadProgress | null>(null);
     const [result, setResult] = useState<RemoteDownloadResult | null>(null);
     const [error, setError] = useState<AppError | null>(null);
@@ -69,6 +70,7 @@ export function useRemoteDownload() {
         proxyOptions?: ProxyOptions | null,
     ) => {
         setIsDownloading(true);
+        setIsCanceling(false);
         setError(null);
         setResult(null);
         setProgress({
@@ -92,25 +94,65 @@ export function useRemoteDownload() {
             return nextResult;
         } catch (err) {
             const appError = toAppError(err);
+            if (appError.message?.includes('下载已取消') || appError.detail?.includes('下载已取消')) {
+                setError(null);
+                setProgress((current) => (
+                    current
+                        ? { ...current, stage: 'canceled', percentage: 0 }
+                        : {
+                            provider,
+                            stage: 'canceled',
+                            percentage: 0,
+                            downloadedBytes: 0,
+                            totalBytes: null,
+                            currentFile: '',
+                        }
+                ));
+                return null;
+            }
             setError(appError);
             throw appError;
         } finally {
             setIsDownloading(false);
+            setIsCanceling(false);
         }
     }, []);
+
+    const cancel = useCallback(async () => {
+        if (!isDownloading || isCanceling) {
+            return;
+        }
+        setIsCanceling(true);
+        setProgress((current) => (
+            current
+                ? { ...current, stage: 'canceling' }
+                : current
+        ));
+        try {
+            await invoke('cancel_remote_download_command');
+        } catch (err) {
+            const appError = toAppError(err);
+            setError(appError);
+            setIsCanceling(false);
+            throw appError;
+        }
+    }, [isCanceling, isDownloading]);
 
     const reset = useCallback(() => {
         setProgress(null);
         setResult(null);
         setError(null);
+        setIsCanceling(false);
     }, []);
 
     return {
         isDownloading,
+        isCanceling,
         progress,
         result,
         error,
         download,
+        cancel,
         reset,
     };
 }

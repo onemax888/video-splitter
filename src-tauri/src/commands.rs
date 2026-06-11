@@ -1,5 +1,6 @@
 use crate::downloader::{
-    download_remote_video, DownloadProvider, DownloadQuality, RemoteDownloadResult,
+    cancel_remote_download, download_remote_video, DownloadProvider, DownloadQuality,
+    RemoteDownloadResult,
 };
 use crate::errors::AppError;
 use crate::ffmpeg::{
@@ -62,6 +63,12 @@ pub async fn download_remote_video_command(
     )
     .await
     .map_err(AppError::from_message)
+}
+
+#[tauri::command]
+pub fn cancel_remote_download_command() -> Result<(), AppError> {
+    cancel_remote_download();
+    Ok(())
 }
 
 #[tauri::command]

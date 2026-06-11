@@ -14,7 +14,7 @@
 - ⏱️ **灵活设置** - 秒/分钟单位切换，预设快捷按钮
 - 📊 **实时进度** - 显示切分进度和当前处理片段
 - 🎥 **视频预览** - 源视频和切分结果均支持播放预览
-- 🔗 **链接导入** - 支持通过 meowload 或 ONCCG 解析视频链接，下载后直接预览和切片
+- 🔗 **链接导入** - 支持通过 MeowLoad CLI、MeowLoad API 或 ONCCG API 解析视频链接，下载后直接预览和切片
 - 📂 **一键打开** - 快速打开输出文件夹
 - 🌙 **主题切换** - 支持 Light/Dark 主题切换
 
@@ -38,7 +38,8 @@
 - Node.js 18+
 - Rust 1.70+
 - FFmpeg 4.0+
-- 可选：`meowload` CLI（用于链接解析下载）
+- 可选：`meowload` CLI（用于默认链接解析下载）
+- 可选：`hhm_key` 或 `MEOWLOAD_API_KEY`（用于 MeowLoad API 解析）
 
 ---
 
@@ -75,7 +76,7 @@ npm run tauri build
 
 - **方式 A**：直接将视频文件拖拽到虚线框内
 - **方式 B**：点击虚线框区域，在文件选择器中选择视频
-- **方式 C**：在「链接导入」中粘贴视频链接，选择 `自动`、`meowload` 或 `ONCCG` 后下载
+- **方式 C**：在「链接导入」中粘贴视频链接，选择 `MeowLoad CLI`、`MeowLoad API` 或 `ONCCG API` 后下载
 
 选择后会自动识别视频时长并显示文件名。
 
@@ -83,17 +84,17 @@ npm run tauri build
 
 「链接导入」适合先把在线视频下载到本机，再进入同一个预览和切片流程。
 
-- `自动`：优先使用本机 `meowload` 解析，失败后回退到 ONCCG。
-- `meowload`：调用系统中的 `meowload info` 获取媒体信息，再由应用下载选中的视频资源。
-- `ONCCG`：调用 ONCCG API 解析视频，保留原始响应和候选媒体列表，便于后续分析不同平台；可启用临时 mihomo 代理。
+- `MeowLoad CLI`：默认解析方式，调用系统中的 `meowload info` 获取媒体信息，再由应用下载选中的视频资源。
+- `MeowLoad API`：调用 `https://api.meowload.net/openapi/extract/post` 解析视频，API key 从 `MEOWLOAD_API_KEY` 或 `hhm_key` 环境变量读取。
+- `ONCCG API`：调用 ONCCG API 解析视频，保留原始响应和候选媒体列表，便于后续分析不同平台。
 - 默认清晰度是 `最低`，也可以切换为 `最高`。
 - 下载文件默认保存到 `~/Movies/VideoClippingDownloads/`，也可以在「链接导入」中选择自定义下载目录；选择后会在本机记住。
 - 每次链接导入都会保存 `_raw/` 目录，包含原始链接、解析响应和候选资源。
-- ONCCG 代理配置支持两种导入方式：
+- 代理配置在右上角「设置」菜单中统一管理，支持两种导入方式：
   - 粘贴 Clash/mihomo 订阅或配置链接。
   - 从本地选择 `.yaml` / `.yml` 配置文件。
 - 代理节点会从配置中的 `proxies:` 自动识别；默认选择包含香港/港/HK/Hong Kong 的节点，也可以手动切换。
-- 代理只作用于本次 ONCCG 请求和媒体下载，不会修改系统代理。
+- 代理启用后只影响 API 解析方式的请求和媒体下载，`MeowLoad CLI` 会忽略该代理设置；代理不会修改系统代理。
 
 如果需要覆盖 ONCCG Key：
 
@@ -147,11 +148,12 @@ npm run tauri dev
 
 ---
 
-## 🌙 主题切换
+## ⚙️ 设置菜单
 
-点击右上角的 🌙/☀️ 图标可在深色/浅色主题之间切换：
+点击右上角的设置按钮可统一管理：
 - 自动保存主题偏好
-- 首次使用时自动检测系统主题
+- 中英文语言切换
+- 临时代理配置、节点选择与测速
 
 ---
 
@@ -190,12 +192,12 @@ video-clipping/
 │   ├── components/         # UI 组件
 │   │   ├── FileDropZone.tsx    # 文件拖拽上传
 │   │   ├── RemoteUrlImporter.tsx # 视频链接导入
+│   │   ├── AppSettingsMenu.tsx # 主题、语言与代理设置
 │   │   ├── DurationInput.tsx   # 时长设置
 │   │   ├── OutputSelector.tsx  # 输出目录选择
 │   │   ├── ProgressBar.tsx     # 进度显示
 │   │   ├── ResultList.tsx      # 结果列表
 │   │   ├── VideoPlayer.tsx     # 视频播放器
-│   │   └── ThemeToggle.tsx     # 主题切换
 │   ├── contexts/           # React Context
 │   │   └── ThemeContext.tsx    # 主题状态管理
 │   ├── hooks/              # React Hooks
@@ -207,7 +209,8 @@ video-clipping/
 │   └── src/
 │       ├── lib.rs          # Tauri 入口
 │       ├── commands.rs     # 命令处理
-│       ├── downloader.rs   # meowload / ONCCG 下载封装
+│       ├── downloader.rs   # MeowLoad / ONCCG 下载封装
+│       ├── mihomo.rs       # 临时代理封装
 │       └── ffmpeg.rs       # FFmpeg 封装
 ├── package.json
 └── tailwind.config.js

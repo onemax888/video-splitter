@@ -5,13 +5,12 @@ import DurationInput from './components/DurationInput';
 import OutputSelector from './components/OutputSelector';
 import ProgressBar from './components/ProgressBar';
 import ResultList from './components/ResultList';
-import ThemeToggle from './components/ThemeToggle';
 import VideoPlayer from './components/VideoPlayer';
 import SplitModeSelector from './components/SplitModeSelector';
 import TimeRangeEditor, { TimeRange } from './components/TimeRangeEditor';
 import AppendMediaSelector from './components/AppendMediaSelector';
-import LanguageToggle from './components/LanguageToggle';
 import RemoteUrlImporter from './components/RemoteUrlImporter';
+import AppSettingsMenu from './components/AppSettingsMenu';
 import { AppendSource } from './types/append';
 import { SeekMode } from './types/seek';
 import { ProxyOptions, useRemoteDownload } from './hooks/useRemoteDownload';
@@ -44,6 +43,7 @@ function App() {
   const [outroSource, setOutroSource] = useState<AppendSource | null>(null);
   const [seekMode, setSeekMode] = useState<SeekMode>('balanced');
   const [fastCopyThresholdMinutes, setFastCopyThresholdMinutes] = useState(20);
+  const [proxyOptions, setProxyOptions] = useState<ProxyOptions | null>(null);
 
   const FAST_COPY_THRESHOLD_OPTIONS = [
     { minutes: 0, label: t('range.fastCopy.optionOff') },
@@ -66,9 +66,11 @@ function App() {
   } = useVideoSplit();
   const {
     isDownloading,
+    isCanceling,
     progress: downloadProgress,
     error: downloadError,
     download: downloadRemoteVideo,
+    cancel: cancelRemoteDownload,
   } = useRemoteDownload();
 
   const activeError = downloadError || error;
@@ -93,12 +95,15 @@ function App() {
 
   const handleRemoteDownload = async (
     url: string,
-    provider: 'auto' | 'meowload' | 'onccg',
+    provider: 'meowloadCli' | 'meowloadApi' | 'onccgApi',
     quality: 'lowest' | 'best',
     downloadDir: string | null,
-    proxyOptions: ProxyOptions | null,
+    activeProxyOptions: ProxyOptions | null,
   ) => {
-    const downloadResult = await downloadRemoteVideo(url, provider, quality, downloadDir, proxyOptions);
+    const downloadResult = await downloadRemoteVideo(url, provider, quality, downloadDir, activeProxyOptions);
+    if (!downloadResult) {
+      return;
+    }
     setOutputDir(downloadResult.outputDir);
     await handleFileSelect(downloadResult.videoPath);
     setShowPreview(true);
@@ -220,8 +225,10 @@ function App() {
           </p>
         </div>
         <div className="flex-1 flex justify-end items-center gap-3">
-          <LanguageToggle />
-          <ThemeToggle />
+          <AppSettingsMenu
+            disabled={isDownloading || isProcessing || isLoading}
+            onProxyOptionsChange={setProxyOptions}
+          />
         </div>
       </header>
 
@@ -294,8 +301,11 @@ function App() {
         <RemoteUrlImporter
           disabled={isProcessing}
           isDownloading={isDownloading}
+          isCanceling={isCanceling}
           progress={downloadProgress}
+          proxyOptions={proxyOptions}
           onDownload={handleRemoteDownload}
+          onCancelDownload={cancelRemoteDownload}
         />
 
         {/* Video Preview Button & Player */}

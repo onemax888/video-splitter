@@ -12,6 +12,10 @@ use tauri_plugin_shell::ShellExt;
 use tokio::sync::Semaphore;
 use tokio::time::{sleep, Duration};
 
+const PROXY_DELAY_CONCURRENCY: usize = 32;
+const PROXY_DELAY_TIMEOUT_MS: u64 = 2500;
+const PROXY_DELAY_REQUEST_TIMEOUT_MS: u64 = PROXY_DELAY_TIMEOUT_MS + 1000;
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyOptions {
@@ -204,10 +208,10 @@ pub async fn measure_proxy_node_delays(
     let session = start_mihomo_proxy(app_handle, &options).await?;
     let controller_port = session.controller_port();
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(8))
+        .timeout(Duration::from_millis(PROXY_DELAY_REQUEST_TIMEOUT_MS))
         .build()
         .map_err(|e| format!("创建测速客户端失败: {}", e))?;
-    let semaphore = Arc::new(Semaphore::new(8));
+    let semaphore = Arc::new(Semaphore::new(PROXY_DELAY_CONCURRENCY));
     let mut tasks = tokio::task::JoinSet::new();
 
     for (index, name) in nodes.iter().cloned().enumerate() {
@@ -247,9 +251,10 @@ async fn measure_single_node_delay(
     node: &str,
 ) -> ProxyNodeDelay {
     let url = format!(
-        "http://127.0.0.1:{}/proxies/{}/delay?timeout=5000&url={}",
+        "http://127.0.0.1:{}/proxies/{}/delay?timeout={}&url={}",
         controller_port,
         url_encode(node),
+        PROXY_DELAY_TIMEOUT_MS,
         url_encode("http://www.gstatic.com/generate_204")
     );
 
