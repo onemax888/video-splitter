@@ -65,5 +65,14 @@ fn map_error_code(message: &str) -> &'static str {
         return "DOWNLOAD_FAILED";
     }
 
+    if message.contains("转写")
+        || message.contains("语音")
+        || lower.contains("transcription")
+        || lower.contains("whisper")
+        || lower.contains("funasr")
+    {
+        return "TRANSCRIPTION_FAILED";
+    }
+
     "UNKNOWN"
 }

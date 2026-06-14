@@ -9,19 +9,53 @@ import { ProxyConfigInfo, ProxyNodeDelay, ProxyOptions } from '../hooks/useRemot
 interface AppSettingsMenuProps {
     disabled?: boolean;
     onProxyOptionsChange: (options: ProxyOptions | null) => void;
+    onWhisperCppDirChange: (path: string) => void;
+    onWhisperModelPathChange: (path: string) => void;
+}
+
+interface WhisperCppModelInfo {
+    name: string;
+    path: string;
+    isDefault: boolean;
+}
+
+interface WhisperCppInfo {
+    ok: boolean;
+    rootPath: string;
+    binPath: string | null;
+    models: WhisperCppModelInfo[];
+    defaultModelPath: string | null;
+    error: string | null;
 }
 
 const PROXY_CONFIG_STORAGE_KEY = 'video-splitter.proxy-config';
 const PROXY_ENABLED_STORAGE_KEY = 'video-splitter.proxy-enabled';
 const PROXY_NODE_STORAGE_KEY = 'video-splitter.proxy-node';
+const WHISPER_CPP_DIR_STORAGE_KEY = 'video-splitter.whisper-cpp-dir';
+const WHISPER_MODEL_PATH_STORAGE_KEY = 'video-splitter.whisper-model-path';
 
 const AppSettingsMenu = ({
     disabled = false,
     onProxyOptionsChange,
+    onWhisperCppDirChange,
+    onWhisperModelPathChange,
 }: AppSettingsMenuProps) => {
     const { theme, setTheme } = useTheme();
     const { locale, setLocale, t } = useI18n();
     const [openMenu, setOpenMenu] = useState(false);
+    const [whisperCppDir, setWhisperCppDir] = useState(() => (
+        typeof window === 'undefined'
+            ? ''
+            : window.localStorage.getItem(WHISPER_CPP_DIR_STORAGE_KEY) || ''
+    ));
+    const [selectedWhisperModelPath, setSelectedWhisperModelPath] = useState(() => (
+        typeof window === 'undefined'
+            ? ''
+            : window.localStorage.getItem(WHISPER_MODEL_PATH_STORAGE_KEY) || ''
+    ));
+    const [whisperInfo, setWhisperInfo] = useState<WhisperCppInfo | null>(null);
+    const [isInspectingWhisper, setIsInspectingWhisper] = useState(false);
+    const [whisperInspectError, setWhisperInspectError] = useState<string | null>(null);
     const [proxyUrl, setProxyUrl] = useState('');
     const [proxyEnabled, setProxyEnabled] = useState(() => (
         typeof window === 'undefined'
@@ -70,6 +104,26 @@ const AppSettingsMenu = ({
     useEffect(() => {
         onProxyOptionsChange(proxyOptions);
     }, [onProxyOptionsChange, proxyOptions]);
+
+    useEffect(() => {
+        onWhisperCppDirChange(whisperCppDir.trim());
+        if (typeof window === 'undefined') return;
+        if (whisperCppDir.trim()) {
+            window.localStorage.setItem(WHISPER_CPP_DIR_STORAGE_KEY, whisperCppDir.trim());
+        } else {
+            window.localStorage.removeItem(WHISPER_CPP_DIR_STORAGE_KEY);
+        }
+    }, [onWhisperCppDirChange, whisperCppDir]);
+
+    useEffect(() => {
+        onWhisperModelPathChange(selectedWhisperModelPath.trim());
+        if (typeof window === 'undefined') return;
+        if (selectedWhisperModelPath.trim()) {
+            window.localStorage.setItem(WHISPER_MODEL_PATH_STORAGE_KEY, selectedWhisperModelPath.trim());
+        } else {
+            window.localStorage.removeItem(WHISPER_MODEL_PATH_STORAGE_KEY);
+        }
+    }, [onWhisperModelPathChange, selectedWhisperModelPath]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -161,6 +215,48 @@ const AppSettingsMenu = ({
         }
     };
 
+    const handleInspectWhisperCpp = async (path = whisperCppDir) => {
+        const trimmed = path.trim();
+        if (!trimmed || isInspectingWhisper || disabled) {
+            return;
+        }
+        setIsInspectingWhisper(true);
+        setWhisperInspectError(null);
+        try {
+            const info = await invoke<WhisperCppInfo>('inspect_whisper_cpp_command', {
+                path: trimmed,
+            });
+            setWhisperInfo(info);
+            if (!info.ok) {
+                setWhisperInspectError(info.error || t('settings.transcription.inspectInvalid'));
+                return;
+            }
+            const hasSelected = info.models.some((item) => item.path === selectedWhisperModelPath);
+            if (!hasSelected) {
+                setSelectedWhisperModelPath(info.defaultModelPath || info.models[0]?.path || '');
+            }
+        } catch (err) {
+            setWhisperInfo(null);
+            setWhisperInspectError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setIsInspectingWhisper(false);
+        }
+    };
+
+    const handleSelectWhisperCppDir = async () => {
+        if (disabled) {
+            return;
+        }
+        const selected = await open({
+            directory: true,
+            multiple: false,
+        });
+        if (selected && typeof selected === 'string') {
+            setWhisperCppDir(selected);
+            await handleInspectWhisperCpp(selected);
+        }
+    };
+
     const formatProxyNodeLabel = (node: string) => {
         const delay = proxyDelays[node];
         if (!delay) {
@@ -232,6 +328,89 @@ const AppSettingsMenu = ({
                                     </button>
                                 ))}
                             </div>
+                        </section>
+
+                        <section className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-700">
+                            <div className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                                {t('settings.transcription')}
+                            </div>
+                            <div className="flex gap-2">
+                                <input
+                                    value={whisperCppDir}
+                                    onChange={(event) => {
+                                        setWhisperCppDir(event.target.value);
+                                        setWhisperInfo(null);
+                                        setWhisperInspectError(null);
+                                    }}
+                                    disabled={disabled}
+                                    placeholder={t('settings.transcription.whisperDirPlaceholder')}
+                                    className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => handleInspectWhisperCpp()}
+                                    disabled={!whisperCppDir.trim() || disabled || isInspectingWhisper}
+                                    className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                >
+                                    {isInspectingWhisper ? t('settings.transcription.inspecting') : t('settings.transcription.inspect')}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSelectWhisperCppDir}
+                                    disabled={disabled || isInspectingWhisper}
+                                    className="rounded-lg bg-slate-100 px-3 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                                >
+                                    {t('settings.transcription.chooseDir')}
+                                </button>
+                            </div>
+                            {(whisperInfo || whisperInspectError) && (
+                                <div className={`rounded-lg border px-3 py-2 text-xs ${whisperInfo?.ok
+                                    ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-900/60 dark:bg-green-950/30 dark:text-green-300'
+                                    : 'border-red-200 bg-red-50 text-red-600 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300'
+                                    }`}>
+                                    <p className="font-medium">
+                                        {whisperInfo?.ok
+                                            ? t('settings.transcription.inspectOk')
+                                            : t('settings.transcription.inspectInvalid')}
+                                    </p>
+                                    {whisperInfo?.binPath && (
+                                        <p className="mt-1 truncate" title={whisperInfo.binPath}>
+                                            {t('settings.transcription.detectedBin')}: {whisperInfo.binPath}
+                                        </p>
+                                    )}
+                                    {(whisperInspectError || whisperInfo?.error) && (
+                                        <p className="mt-1">{whisperInspectError || whisperInfo?.error}</p>
+                                    )}
+                                </div>
+                            )}
+                            {whisperInfo?.models.length ? (
+                                <div className="space-y-1">
+                                    <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                                        {t('settings.transcription.model')}
+                                    </label>
+                                    <select
+                                        value={selectedWhisperModelPath}
+                                        onChange={(event) => setSelectedWhisperModelPath(event.target.value)}
+                                        disabled={disabled || isInspectingWhisper}
+                                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-700 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+                                    >
+                                        {whisperInfo.models.map((item) => (
+                                            <option key={item.path} value={item.path}>
+                                                {item.isDefault
+                                                    ? `${item.name} · ${t('settings.transcription.defaultModel')}`
+                                                    : item.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            ) : whisperInfo?.ok === false && !whisperInfo.models.length ? (
+                                <p className="text-xs text-amber-600 dark:text-amber-300">
+                                    {t('settings.transcription.noModels')}
+                                </p>
+                            ) : null}
+                            <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+                                {t('settings.transcription.whisperDirHint')}
+                            </p>
                         </section>
 
                         <section className="space-y-3 border-t border-slate-200 pt-4 dark:border-slate-700">

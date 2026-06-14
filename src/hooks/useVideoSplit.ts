@@ -13,6 +13,8 @@ interface VideoInfo {
     duration_formatted: string;
     filename: string;
     file_size: number;
+    width?: number | null;
+    height?: number | null;
 }
 
 interface SplitProgress {

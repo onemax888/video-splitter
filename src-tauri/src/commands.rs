@@ -4,13 +4,16 @@ use crate::downloader::{
 };
 use crate::errors::AppError;
 use crate::ffmpeg::{
-    check_ffmpeg, format_duration, get_video_duration, prepare_hls_source, split_video,
-    split_video_by_ranges, split_video_with_append, AppendSource, FFmpegStatus, PreviewSource,
-    SeekMode, SplitResult, TimeRange, VideoInfo,
+    check_ffmpeg, format_duration, get_video_display_size, get_video_duration, prepare_hls_source,
+    split_video, split_video_by_ranges, split_video_with_append, AppendSource, FFmpegStatus,
+    PreviewSource, SeekMode, SplitResult, TimeRange, VideoInfo,
 };
 use crate::mihomo::{
     import_proxy_config_from_file, import_proxy_config_from_url, measure_proxy_node_delays,
     ProxyConfigInfo, ProxyNodeDelay, ProxyOptions,
+};
+use crate::transcription::{
+    inspect_whisper_cpp, transcribe_media, TranscriptionModel, TranscriptionResult, WhisperCppInfo,
 };
 use tauri::{AppHandle, Manager};
 
@@ -34,6 +37,10 @@ pub async fn get_video_info(app_handle: AppHandle, path: String) -> Result<Video
         .to_string();
 
     let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    let dimensions = get_video_display_size(&app_handle, &path)
+        .await
+        .ok()
+        .flatten();
 
     Ok(VideoInfo {
         path,
@@ -41,6 +48,8 @@ pub async fn get_video_info(app_handle: AppHandle, path: String) -> Result<Video
         duration_formatted,
         filename,
         file_size,
+        width: dimensions.map(|(width, _)| width),
+        height: dimensions.map(|(_, height)| height),
     })
 }
 
@@ -93,6 +102,32 @@ pub async fn measure_proxy_node_delays_command(
     measure_proxy_node_delays(&app_handle, &config_path)
         .await
         .map_err(AppError::from_message)
+}
+
+#[tauri::command]
+pub async fn transcribe_media_command(
+    app_handle: AppHandle,
+    source_path: String,
+    model: TranscriptionModel,
+    whisper_cpp_dir: Option<String>,
+    whisper_model_path: Option<String>,
+    task_id: Option<String>,
+) -> Result<TranscriptionResult, AppError> {
+    transcribe_media(
+        &app_handle,
+        &source_path,
+        model,
+        whisper_cpp_dir,
+        whisper_model_path,
+        task_id,
+    )
+    .await
+    .map_err(AppError::from_message)
+}
+
+#[tauri::command]
+pub fn inspect_whisper_cpp_command(path: String) -> Result<WhisperCppInfo, AppError> {
+    Ok(inspect_whisper_cpp(&path))
 }
 
 #[tauri::command]

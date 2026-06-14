@@ -1,12 +1,12 @@
 use chrono::{Duration as ChronoDuration, Local};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
-use tauri_plugin_shell::ShellExt;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
+use tauri::{AppHandle, Emitter};
+use tauri_plugin_shell::ShellExt;
 use tiny_http::{Header, ListenAddr, Response, Server, StatusCode};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -16,6 +16,8 @@ pub struct VideoInfo {
     pub duration_formatted: String,
     pub filename: String,
     pub file_size: u64,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -90,14 +92,10 @@ fn build_batch_output_dir(output_dir: &str, _input_path: &str) -> Result<String,
 
     for i in 0..1000 {
         let candidate_time = now + ChronoDuration::seconds(i as i64);
-        let name = format!(
-            "{}",
-            candidate_time.format("%Y%m%d_%H%M%S")
-        );
+        let name = format!("{}", candidate_time.format("%Y%m%d_%H%M%S"));
         let candidate = base_dir.join(&name);
         if !candidate.exists() {
-            std::fs::create_dir_all(&candidate)
-                .map_err(|e| format!("创建输出目录失败: {}", e))?;
+            std::fs::create_dir_all(&candidate).map_err(|e| format!("创建输出目录失败: {}", e))?;
             return Ok(candidate.to_string_lossy().to_string());
         }
     }
@@ -191,6 +189,85 @@ pub async fn get_video_duration(app_handle: &AppHandle, path: &str) -> Result<f6
         .trim()
         .parse::<f64>()
         .map_err(|e| format!("Failed to parse duration: {}", e))
+}
+
+pub async fn get_video_display_size(
+    app_handle: &AppHandle,
+    path: &str,
+) -> Result<Option<(u32, u32)>, String> {
+    let output = app_handle
+        .shell()
+        .sidecar("ffprobe")
+        .map_err(|e| format!("Failed to locate ffprobe sidecar: {}", e))?
+        .args([
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height:stream_tags=rotate:stream_side_data=rotation",
+            path,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("ffprobe failed: {}", stderr));
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Failed to parse ffprobe output: {}", e))?;
+    let Some(stream) = value
+        .get("streams")
+        .and_then(|v| v.as_array())
+        .and_then(|streams| streams.first())
+    else {
+        return Ok(None);
+    };
+
+    let Some(mut width) = stream
+        .get("width")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32)
+    else {
+        return Ok(None);
+    };
+    let Some(mut height) = stream
+        .get("height")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32)
+    else {
+        return Ok(None);
+    };
+
+    let rotation = stream
+        .get("tags")
+        .and_then(|tags| tags.get("rotate"))
+        .and_then(|value| value.as_str())
+        .and_then(|value| value.parse::<i32>().ok())
+        .or_else(|| {
+            stream
+                .get("side_data_list")
+                .and_then(|value| value.as_array())
+                .and_then(|items| {
+                    items.iter().find_map(|item| {
+                        item.get("rotation")
+                            .and_then(|value| value.as_f64())
+                            .map(|value| value.round() as i32)
+                    })
+                })
+        })
+        .unwrap_or(0);
+
+    if rotation.rem_euclid(180).abs() == 90 {
+        std::mem::swap(&mut width, &mut height);
+    }
+
+    Ok(Some((width, height)))
 }
 
 fn parse_fraction(value: &str) -> Option<f64> {
@@ -554,8 +631,8 @@ fn ensure_hls_server() -> Result<&'static HlsServerState, String> {
         return Ok(server);
     }
 
-    let server = Server::http("127.0.0.1:0")
-        .map_err(|e| format!("Failed to start HLS server: {}", e))?;
+    let server =
+        Server::http("127.0.0.1:0").map_err(|e| format!("Failed to start HLS server: {}", e))?;
     let port = match server.server_addr() {
         ListenAddr::IP(addr) => addr.port(),
         _ => return Err("Failed to determine HLS server port".to_string()),
@@ -583,7 +660,10 @@ fn ensure_hls_server() -> Result<&'static HlsServerState, String> {
         .ok_or_else(|| "Failed to initialize HLS server".to_string())
 }
 
-fn handle_hls_request(request: tiny_http::Request, dirs: &Arc<Mutex<HashMap<String, std::path::PathBuf>>>) {
+fn handle_hls_request(
+    request: tiny_http::Request,
+    dirs: &Arc<Mutex<HashMap<String, std::path::PathBuf>>>,
+) {
     let url = request.url().to_string();
     let path = url.split('?').next().unwrap_or(&url);
     let parts = path.trim_start_matches('/').split('/').collect::<Vec<_>>();
@@ -735,8 +815,7 @@ pub async fn prepare_hls_source(
         });
     }
 
-    std::fs::create_dir_all(&hls_dir)
-        .map_err(|e| format!("Failed to create HLS dir: {}", e))?;
+    std::fs::create_dir_all(&hls_dir).map_err(|e| format!("Failed to create HLS dir: {}", e))?;
 
     let server = ensure_hls_server()?;
     let spawn_needed = {
@@ -877,10 +956,7 @@ fn build_concat_filter(pairs: &[(String, String)]) -> String {
         filter.push_str(video);
         filter.push_str(audio);
     }
-    filter.push_str(&format!(
-        "concat=n={}:v=1:a=1[outv][outa]",
-        pairs.len()
-    ));
+    filter.push_str(&format!("concat=n={}:v=1:a=1[outv][outa]", pairs.len()));
     filter
 }
 
@@ -960,10 +1036,7 @@ pub async fn split_video_with_append(
     };
 
     let path = std::path::Path::new(input_path);
-    let extension = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("mp4");
+    let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("mp4");
 
     let total_segments = ranges.len() as u32;
     let mut output_files = Vec::new();
@@ -983,12 +1056,7 @@ pub async fn split_video_with_append(
         };
         let _ = app_handle.emit("split-progress", &progress);
 
-        let output_file = build_segment_filename(
-            &output_dir,
-            i,
-            extension,
-            range.label.as_deref(),
-        );
+        let output_file = build_segment_filename(&output_dir, i, extension, range.label.as_deref());
         let start_time = format!("{:.3}", range.start_seconds);
         let duration_str = format!("{:.3}", segment_len);
         let segment_start = Instant::now();
@@ -1142,10 +1210,7 @@ pub async fn split_video(
     let output_dir = build_batch_output_dir(output_dir, input_path)?;
 
     let path = std::path::Path::new(input_path);
-    let extension = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("mp4");
+    let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("mp4");
 
     let progress = SplitProgress {
         current_segment: 0,
@@ -1244,10 +1309,7 @@ pub async fn split_video_by_ranges(
     let overall_start = Instant::now();
     let output_dir = build_batch_output_dir(output_dir, input_path)?;
     let path = std::path::Path::new(input_path);
-    let extension = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("mp4");
+    let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("mp4");
 
     let total_segments = ranges.len() as u32;
     let mut output_files = Vec::new();
@@ -1272,12 +1334,7 @@ pub async fn split_video_by_ranges(
         };
         let _ = app_handle.emit("split-progress", &progress);
 
-        let output_file = build_segment_filename(
-            &output_dir,
-            i,
-            extension,
-            range.label.as_deref(),
-        );
+        let output_file = build_segment_filename(&output_dir, i, extension, range.label.as_deref());
         let start_time = format!("{:.3}", range.start_seconds);
         let end_time = format!("{:.3}", range.end_seconds);
         let duration_str = format!("{:.3}", segment_len);

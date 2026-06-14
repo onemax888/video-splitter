@@ -42,6 +42,7 @@ pub struct RemoteDownloadResult {
     pub title: String,
     pub video_path: String,
     pub cover_path: Option<String>,
+    pub audio_path: Option<String>,
     pub output_dir: String,
     pub raw_dir: String,
     pub file_size: u64,
@@ -74,6 +75,11 @@ struct MediaChoice {
     quality: Option<u32>,
     ext: String,
     audio_ext: Option<String>,
+}
+
+struct DownloadedMedia {
+    video_path: PathBuf,
+    audio_path: Option<PathBuf>,
 }
 
 pub async fn download_remote_video(
@@ -181,7 +187,7 @@ async fn download_with_meowload_cli(
         .ok_or_else(|| "meowload 未返回可下载的视频资源".to_string())?;
     ensure_download_not_cancelled()?;
 
-    let video_path = download_meowload_choice(
+    let media = download_meowload_choice(
         app_handle,
         DownloadProvider::MeowloadCli,
         &ctx,
@@ -220,14 +226,25 @@ async fn download_with_meowload_cli(
         None
     };
 
+    let audio_path_text = media
+        .audio_path
+        .as_ref()
+        .map(|path| path.to_string_lossy().to_string());
     save_metadata(
         &ctx,
         DownloadProvider::MeowloadCli,
-        &video_path,
+        &media.video_path,
+        audio_path_text.as_deref(),
         cover_path.as_deref(),
     )
     .await?;
-    finish_result(ctx, DownloadProvider::MeowloadCli, video_path, cover_path)
+    finish_result(
+        ctx,
+        DownloadProvider::MeowloadCli,
+        media.video_path,
+        cover_path,
+        media.audio_path,
+    )
 }
 
 async fn download_with_meowload_api(
@@ -251,12 +268,9 @@ async fn download_with_meowload_api(
         .or_else(|_| std::env::var("hhm_key"))
         .map_err(|_| "请先设置 MEOWLOAD_API_KEY 或 hhm_key 环境变量".to_string())?;
     ensure_download_not_cancelled()?;
-    let proxy_session = start_api_proxy_if_enabled(
-        app_handle,
-        DownloadProvider::MeowloadApi,
-        proxy_options,
-    )
-    .await?;
+    let proxy_session =
+        start_api_proxy_if_enabled(app_handle, DownloadProvider::MeowloadApi, proxy_options)
+            .await?;
     let proxy_url = proxy_session.as_ref().map(|session| session.proxy_url());
     let client = http_client(proxy_url)?;
     ensure_download_not_cancelled()?;
@@ -298,7 +312,7 @@ async fn download_with_meowload_api(
     let choice = choose_meowload_media(&parsed, quality)
         .ok_or_else(|| "MeowLoad API 未返回可下载的视频资源".to_string())?;
     ensure_download_not_cancelled()?;
-    let video_path = download_meowload_choice(
+    let media = download_meowload_choice(
         app_handle,
         DownloadProvider::MeowloadApi,
         &ctx,
@@ -307,14 +321,25 @@ async fn download_with_meowload_api(
     )
     .await?;
 
+    let audio_path_text = media
+        .audio_path
+        .as_ref()
+        .map(|path| path.to_string_lossy().to_string());
     save_metadata(
         &ctx,
         DownloadProvider::MeowloadApi,
-        &video_path,
+        &media.video_path,
+        audio_path_text.as_deref(),
         None,
     )
     .await?;
-    finish_result(ctx, DownloadProvider::MeowloadApi, video_path, None)
+    finish_result(
+        ctx,
+        DownloadProvider::MeowloadApi,
+        media.video_path,
+        None,
+        media.audio_path,
+    )
 }
 
 async fn download_with_onccg(
@@ -337,12 +362,8 @@ async fn download_with_onccg(
     let api_key = std::env::var("ONCCG_KEY").unwrap_or_else(|_| ONCCG_DEFAULT_KEY.to_string());
     let api_type = std::env::var("ONCCG_TYPE").unwrap_or_else(|_| ONCCG_DEFAULT_TYPE.to_string());
     ensure_download_not_cancelled()?;
-    let proxy_session = start_api_proxy_if_enabled(
-        app_handle,
-        DownloadProvider::OnccgApi,
-        proxy_options,
-    )
-    .await?;
+    let proxy_session =
+        start_api_proxy_if_enabled(app_handle, DownloadProvider::OnccgApi, proxy_options).await?;
     let proxy_url = proxy_session.as_ref().map(|session| session.proxy_url());
     let client = http_client(proxy_url)?;
     ensure_download_not_cancelled()?;
@@ -456,10 +477,17 @@ async fn download_with_onccg(
         &ctx,
         DownloadProvider::OnccgApi,
         &video_path,
+        None,
         cover_path.as_deref(),
     )
     .await?;
-    finish_result(ctx, DownloadProvider::OnccgApi, video_path, cover_path)
+    finish_result(
+        ctx,
+        DownloadProvider::OnccgApi,
+        video_path,
+        cover_path,
+        None,
+    )
 }
 
 async fn start_api_proxy_if_enabled(
@@ -467,7 +495,10 @@ async fn start_api_proxy_if_enabled(
     provider: DownloadProvider,
     proxy_options: Option<&ProxyOptions>,
 ) -> Result<Option<MihomoSession>, String> {
-    if !proxy_options.map(|options| options.enabled).unwrap_or(false) {
+    if !proxy_options
+        .map(|options| options.enabled)
+        .unwrap_or(false)
+    {
         return Ok(None);
     }
 
@@ -676,7 +707,7 @@ async fn download_meowload_choice(
     ctx: &DownloadContext,
     choice: MediaChoice,
     proxy_url: Option<&str>,
-) -> Result<PathBuf, String> {
+) -> Result<DownloadedMedia, String> {
     let safe_title = safe_name(&ctx.title, "video", 120);
     ensure_download_not_cancelled()?;
     if let Some(audio_url) = choice.audio_url.as_deref() {
@@ -713,7 +744,10 @@ async fn download_meowload_choice(
 
         let merged_path = unique_path(ctx.output_dir.join(format!("{}.mp4", safe_title)));
         merge_video_audio(app_handle, &video_path, &audio_path, &merged_path).await?;
-        Ok(merged_path)
+        Ok(DownloadedMedia {
+            video_path: merged_path,
+            audio_path: Some(audio_path),
+        })
     } else {
         let file_name = format!("{}.{}", safe_title, choice.ext);
         let video_path = unique_path(ctx.output_dir.join(file_name));
@@ -726,7 +760,10 @@ async fn download_meowload_choice(
             proxy_url,
         )
         .await?;
-        Ok(video_path)
+        Ok(DownloadedMedia {
+            video_path,
+            audio_path: None,
+        })
     }
 }
 
@@ -902,6 +939,7 @@ async fn save_metadata(
     ctx: &DownloadContext,
     provider: DownloadProvider,
     video_path: &Path,
+    audio_path: Option<&str>,
     cover_path: Option<&str>,
 ) -> Result<(), String> {
     let metadata = serde_json::json!({
@@ -909,6 +947,7 @@ async fn save_metadata(
         "sourceUrl": ctx.source_url,
         "title": ctx.title,
         "videoPath": video_path,
+        "audioPath": audio_path,
         "coverPath": cover_path,
         "createdAt": Local::now().to_rfc3339(),
     });
@@ -924,6 +963,7 @@ fn finish_result(
     provider: DownloadProvider,
     video_path: PathBuf,
     cover_path: Option<String>,
+    audio_path: Option<PathBuf>,
 ) -> Result<RemoteDownloadResult, String> {
     let file_size = std::fs::metadata(&video_path).map(|m| m.len()).unwrap_or(0);
     Ok(RemoteDownloadResult {
@@ -932,6 +972,7 @@ fn finish_result(
         title: ctx.title,
         video_path: video_path.to_string_lossy().to_string(),
         cover_path,
+        audio_path: audio_path.map(|path| path.to_string_lossy().to_string()),
         output_dir: ctx.output_dir.to_string_lossy().to_string(),
         raw_dir: ctx.raw_dir.to_string_lossy().to_string(),
         file_size,

@@ -11,6 +11,7 @@ import TimeRangeEditor, { TimeRange } from './components/TimeRangeEditor';
 import AppendMediaSelector from './components/AppendMediaSelector';
 import RemoteUrlImporter from './components/RemoteUrlImporter';
 import AppSettingsMenu from './components/AppSettingsMenu';
+import TranscriptionPanel from './components/TranscriptionPanel';
 import { AppendSource } from './types/append';
 import { SeekMode } from './types/seek';
 import { ProxyOptions, useRemoteDownload } from './hooks/useRemoteDownload';
@@ -34,6 +35,9 @@ function App() {
   const [segmentDuration, setSegmentDuration] = useState(300); // 5 minutes default
   const [durationUnit, setDurationUnit] = useState<'seconds' | 'minutes'>('seconds');
   const [outputDir, setOutputDir] = useState('');
+  const [transcriptionSource, setTranscriptionSource] = useState<string | null>(null);
+  const [whisperCppDir, setWhisperCppDir] = useState('');
+  const [whisperModelPath, setWhisperModelPath] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [ffmpegStatus, setFfmpegStatus] = useState<FFmpegStatus | null>(null);
   const [isCheckingFfmpeg, setIsCheckingFfmpeg] = useState(false);
@@ -88,6 +92,7 @@ function App() {
 
   const handleFileSelect = async (path: string) => {
     setSelectedFile(path);
+    setTranscriptionSource(path);
     setShowPreview(false);
     setTimeRanges([]);
     await loadVideoInfo(path);
@@ -105,7 +110,9 @@ function App() {
       return;
     }
     setOutputDir(downloadResult.outputDir);
+    setTranscriptionSource(downloadResult.audioPath || downloadResult.videoPath);
     await handleFileSelect(downloadResult.videoPath);
+    setTranscriptionSource(downloadResult.audioPath || downloadResult.videoPath);
     setShowPreview(true);
   };
 
@@ -228,6 +235,8 @@ function App() {
           <AppSettingsMenu
             disabled={isDownloading || isProcessing || isLoading}
             onProxyOptionsChange={setProxyOptions}
+            onWhisperCppDirChange={setWhisperCppDir}
+            onWhisperModelPathChange={setWhisperModelPath}
           />
         </div>
       </header>
@@ -289,7 +298,7 @@ function App() {
       )}
 
       {/* Main Content */}
-      <main className="flex-1 max-w-2xl mx-auto w-full space-y-6">
+      <main className="flex-1 max-w-7xl mx-auto w-full space-y-6">
         {/* File Drop Zone */}
         <FileDropZone
           onFileSelect={handleFileSelect}
@@ -323,12 +332,32 @@ function App() {
             </button>
 
             {showPreview && (
-              <VideoPlayer
-                filePath={selectedFile}
-                title={videoInfo.filename}
-                fileSize={videoInfo.file_size}
-                totalDuration={videoInfo.duration}
-                onClose={() => setShowPreview(false)}
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(22rem,0.9fr)] lg:items-start">
+                <VideoPlayer
+                  filePath={selectedFile}
+                  title={videoInfo.filename}
+                  fileSize={videoInfo.file_size}
+                  totalDuration={videoInfo.duration}
+                  intrinsicWidth={videoInfo.width || undefined}
+                  intrinsicHeight={videoInfo.height || undefined}
+                  onClose={() => setShowPreview(false)}
+                />
+                <TranscriptionPanel
+                  sourcePath={transcriptionSource || selectedFile}
+                  whisperCppDir={whisperCppDir}
+                  whisperModelPath={whisperModelPath}
+                  disabled={isProcessing || isDownloading}
+                  className="lg:sticky lg:top-6"
+                />
+              </div>
+            )}
+
+            {!showPreview && (
+              <TranscriptionPanel
+                sourcePath={transcriptionSource || selectedFile}
+                whisperCppDir={whisperCppDir}
+                whisperModelPath={whisperModelPath}
+                disabled={isProcessing || isDownloading}
               />
             )}
           </div>

@@ -31,6 +31,7 @@ export interface RemoteDownloadResult {
     title: string;
     videoPath: string;
     coverPath?: string | null;
+    audioPath?: string | null;
     outputDir: string;
     rawDir: string;
     fileSize: number;

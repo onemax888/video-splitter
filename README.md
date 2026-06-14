@@ -111,6 +111,44 @@ export MEOWLOAD_PATH="/path/to/meowload"
 npm run tauri dev
 ```
 
+### 1.2 语音转文字
+
+选择本地视频或链接下载完成后，页面会显示「语音转文字」面板。
+
+- 模型引擎可选择 `whisper.cpp` 或 `FunASR`。
+- 如果下载阶段拿到了独立音频文件，会优先使用下载音频转写。
+- 如果当前输入是视频文件，会自动用内置 FFmpeg 分离为 16k 单声道 wav 后再转写。
+- 转写结果会直接显示在页面上，并保存到视频所在目录的 `_transcripts/` 中。
+
+whisper.cpp 推荐在右上角「设置」中填写 whisper.cpp 根目录，例如：
+
+```text
+/Users/qindongliang/Documents/vps/whisper.cpp
+```
+
+应用会自动识别：
+- `build/bin/whisper-cli`、`build/bin/main`、`whisper-cli` 或 `main`
+- `models/` 目录下的 `ggml-*.bin` 模型
+- 点击「检测」后会显示识别到的程序路径，并列出可用模型；默认优先选择 `ggml-large-v3-turbo.bin`，也可以手动切换模型。
+
+也可以使用环境变量兜底：
+
+```bash
+export WHISPER_CPP_BIN="/path/to/whisper-cli"
+export WHISPER_CPP_MODEL="/path/to/ggml-model.bin"
+npm run tauri dev
+```
+
+FunASR 可配置本地模型路径：
+
+```bash
+export FUNASR_BIN="/path/to/funasr"
+export FUNASR_MODEL="/path/to/paraformer-zh"
+export FUNASR_VAD_MODEL="/path/to/fsmn-vad"
+export FUNASR_PUNC_MODEL="/path/to/ct-punc"
+npm run tauri dev
+```
+
 ### 2️⃣ 预览视频（可选）
 
 选择视频后，点击「预览视频」按钮可以播放预览：
@@ -153,6 +191,7 @@ npm run tauri dev
 点击右上角的设置按钮可统一管理：
 - 自动保存主题偏好
 - 中英文语言切换
+- whisper.cpp 根目录检测和默认模型选择
 - 临时代理配置、节点选择与测速
 
 ---
@@ -193,6 +232,7 @@ video-clipping/
 │   │   ├── FileDropZone.tsx    # 文件拖拽上传
 │   │   ├── RemoteUrlImporter.tsx # 视频链接导入
 │   │   ├── AppSettingsMenu.tsx # 主题、语言与代理设置
+│   │   ├── TranscriptionPanel.tsx # 语音转文字
 │   │   ├── DurationInput.tsx   # 时长设置
 │   │   ├── OutputSelector.tsx  # 输出目录选择
 │   │   ├── ProgressBar.tsx     # 进度显示
@@ -211,6 +251,7 @@ video-clipping/
 │       ├── commands.rs     # 命令处理
 │       ├── downloader.rs   # MeowLoad / ONCCG 下载封装
 │       ├── mihomo.rs       # 临时代理封装
+│       ├── transcription.rs # 语音转文字封装
 │       └── ffmpeg.rs       # FFmpeg 封装
 ├── package.json
 └── tailwind.config.js

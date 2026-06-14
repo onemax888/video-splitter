@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, type CSSProperties } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import Hls from 'hls.js';
 import { usePreviewSource } from '../hooks/usePreviewSource';
@@ -10,12 +10,24 @@ interface VideoPlayerProps {
     title?: string;
     fileSize?: number; // 文件大小（字节）
     totalDuration?: number; // 真实总时长（秒）
+    intrinsicWidth?: number;
+    intrinsicHeight?: number;
     onClose?: () => void;
     onTimeUpdate?: (time: number) => void;
     seekTo?: number | null;
 }
 
-const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTimeUpdate, seekTo }: VideoPlayerProps) => {
+const VideoPlayer = ({
+    filePath,
+    title,
+    fileSize,
+    totalDuration,
+    intrinsicWidth,
+    intrinsicHeight,
+    onClose,
+    onTimeUpdate,
+    seekTo,
+}: VideoPlayerProps) => {
     const { t } = useI18n();
     const videoRef = useRef<HTMLVideoElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
@@ -33,6 +45,12 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
     const [autoPlayAfterSeek, setAutoPlayAfterSeek] = useState(false);
     const [isScrubbing, setIsScrubbing] = useState(false);
     const [hlsStartOffset, setHlsStartOffset] = useState(0);
+    const [metadataSize, setMetadataSize] = useState<{ width: number; height: number } | null>(() => {
+        if (intrinsicWidth && intrinsicHeight) {
+            return { width: intrinsicWidth, height: intrinsicHeight };
+        }
+        return null;
+    });
 
     // 大文件阈值：500MB
     const LARGE_FILE_THRESHOLD = 500 * 1024 * 1024;
@@ -67,7 +85,14 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
         setIsScrubbing(false);
         setHlsStartOffset(0);
         setCurrentTime(0);
+        setMetadataSize(intrinsicWidth && intrinsicHeight ? { width: intrinsicWidth, height: intrinsicHeight } : null);
     }, [filePath]);
+
+    useEffect(() => {
+        if (intrinsicWidth && intrinsicHeight) {
+            setMetadataSize((current) => current || { width: intrinsicWidth, height: intrinsicHeight });
+        }
+    }, [intrinsicWidth, intrinsicHeight]);
 
     useEffect(() => {
         setError(null);
@@ -298,6 +323,12 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
 
     const handleLoadedMetadata = () => {
         if (videoRef.current) {
+            if (videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
+                setMetadataSize({
+                    width: videoRef.current.videoWidth,
+                    height: videoRef.current.videoHeight,
+                });
+            }
             setDuration(videoRef.current.duration);
             setIsLoading(false);
             setError(null);
@@ -417,6 +448,17 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
 
     const videoSrc = source?.kind === 'file' ? convertFileSrc(source.path) : undefined;
     const debugSrc = source?.kind === 'hls' ? source.path : (videoSrc || '');
+    const frameStyle = useMemo<CSSProperties>(() => {
+        const width = metadataSize?.width || intrinsicWidth || 16;
+        const height = metadataSize?.height || intrinsicHeight || 9;
+        const isPortrait = height > width;
+        const aspectRatio = `${Math.max(width, 1)} / ${Math.max(height, 1)}`;
+        return {
+            aspectRatio,
+            maxWidth: isPortrait ? 'min(100%, 28rem)' : '100%',
+            maxHeight: isPortrait ? 'min(72vh, 680px)' : 'min(64vh, 580px)',
+        };
+    }, [metadataSize?.height, metadataSize?.width, intrinsicHeight, intrinsicWidth]);
 
     return (
         <div className="glass rounded-xl overflow-hidden">
@@ -461,11 +503,12 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
             )}
 
             {/* Video */}
-            <div className="relative bg-black min-h-[200px]">
+            <div className="relative flex min-h-[220px] items-center justify-center bg-black p-2">
+                <div className="relative w-full overflow-hidden bg-black" style={frameStyle}>
                 <video
                     ref={videoRef}
                     src={videoSrc}
-                    className="w-full max-h-[400px]"
+                    className="h-full w-full object-contain"
                     preload="metadata"
                     onLoadStart={handleLoadStart}
                     onLoadedMetadata={handleLoadedMetadata}
@@ -479,6 +522,7 @@ const VideoPlayer = ({ filePath, title, fileSize, totalDuration, onClose, onTime
                     onWaiting={handleWaiting}
                     onPlaying={handlePlaying}
                 />
+                </div>
 
                 {/* Loading overlay */}
                 {(isLoading || isPreparing) && !error && !hlsError && (
