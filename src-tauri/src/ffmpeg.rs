@@ -1234,6 +1234,8 @@ pub async fn split_video(
             "copy",
             "-map",
             "0",
+            // Camera metadata tracks (e.g. XAVC rtmd) cannot be remuxed into MP4.
+            "-dn",
             "-f",
             "segment",
             "-segment_time",
@@ -1250,10 +1252,7 @@ pub async fn split_video(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let first_file = format!("{}/{:03}.{}", output_dir, 0, extension);
-        if !std::path::Path::new(&first_file).exists() {
-            return Err(format!("FFmpeg failed: {}", stderr));
-        }
+        return Err(format!("FFmpeg failed: {}", stderr));
     }
 
     let mut output_files = Vec::new();
@@ -1264,6 +1263,10 @@ pub async fn split_video(
         } else {
             break;
         }
+    }
+
+    if output_files.is_empty() {
+        return Err("FFmpeg 未生成任何片段".to_string());
     }
 
     let segment_stats = output_files
