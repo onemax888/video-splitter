@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { AppendSource } from '../types/append';
 import { SeekMode } from '../types/seek';
+import { IntervalSplitMode } from '../types/interval';
 import { useI18n } from '../i18n/I18nProvider';
 import { AppError } from '../types/error';
 import { toAppError } from '../utils/appError';
@@ -85,6 +86,7 @@ export function useVideoSplit() {
         segmentDuration: number,
         intro?: AppendSource | null,
         outro?: AppendSource | null,
+        intervalMode: IntervalSplitMode = 'copy',
     ) => {
         setIsProcessing(true);
         setError(null);
@@ -101,6 +103,7 @@ export function useVideoSplit() {
                 inputPath,
                 outputDir,
                 segmentDuration,
+                intervalMode,
                 intro,
                 outro,
             });

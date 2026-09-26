@@ -3,6 +3,7 @@ use crate::downloader::{
     RemoteDownloadResult,
 };
 use crate::errors::AppError;
+use crate::ffmpeg::IntervalSplitMode;
 use crate::ffmpeg::{
     check_ffmpeg, format_duration, get_video_display_size, get_video_duration, prepare_hls_source,
     split_video, split_video_by_ranges, split_video_with_append, AppendSource, FFmpegStatus,
@@ -138,11 +139,21 @@ pub async fn split_video_command(
     segment_duration: u32,
     intro: Option<AppendSource>,
     outro: Option<AppendSource>,
+    interval_mode: Option<IntervalSplitMode>,
 ) -> Result<SplitResult, AppError> {
+    if segment_duration == 0 {
+        return Err(AppError::from_message("片段时长必须大于 0"));
+    }
     if intro.is_none() && outro.is_none() {
-        split_video(&app_handle, &input_path, &output_dir, segment_duration)
-            .await
-            .map_err(AppError::from_message)
+        split_video(
+            &app_handle,
+            &input_path,
+            &output_dir,
+            segment_duration,
+            interval_mode.unwrap_or_default(),
+        )
+        .await
+        .map_err(AppError::from_message)
     } else {
         split_video_with_append(
             &app_handle,
