@@ -1,6 +1,6 @@
 [package]
 name = "video-splitter"
-version = "0.2.2"
+version = "0.2.6"
 description = "Video Splitter - 视频按时长切分工具"
 authors = ["qindongliang"]
 edition = "2021"
