@@ -1130,11 +1130,85 @@ pub async fn split_video_with_append(
     })
 }
 
+#[derive(Debug, Deserialize, Clone, Copy, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum IntervalSplitMode {
+    #[default]
+    Copy,
+    Precise,
+}
+
+fn interval_split_args(
+    input_path: &str,
+    output_pattern: &str,
+    segment_duration: u32,
+    mode: IntervalSplitMode,
+) -> Vec<String> {
+    let mut args = vec!["-y".to_string(), "-i".to_string(), input_path.to_string()];
+    match mode {
+        IntervalSplitMode::Copy => {
+            // Camera metadata tracks (e.g. XAVC rtmd) cannot be remuxed into MP4.
+            args.extend(["-c", "copy", "-map", "0", "-dn"].map(str::to_string));
+        }
+        IntervalSplitMode::Precise => {
+            // Use the same high-quality encoding settings as range/append splitting.
+            // Select actual video (not cover art) and optional audio for MP4 output.
+            args.extend(
+                [
+                    "-map",
+                    "0:V:0",
+                    "-map",
+                    "0:a?",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "veryfast",
+                    "-crf",
+                    "18",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "192k",
+                    // Preserve frame timestamps; do not shift the first segment for AAC/B-frame delay.
+                    "-fps_mode",
+                    "passthrough",
+                    "-avoid_negative_ts",
+                    "disabled",
+                ]
+                .map(str::to_string),
+            );
+            args.extend([
+                "-force_key_frames".to_string(),
+                format!("expr:gte(t,n_forced*{segment_duration})"),
+            ]);
+        }
+    }
+    args.extend([
+        "-f".to_string(),
+        "segment".to_string(),
+        "-segment_time".to_string(),
+        segment_duration.to_string(),
+        "-reset_timestamps".to_string(),
+        "1".to_string(),
+        "-break_non_keyframes".to_string(),
+        "0".to_string(),
+        output_pattern.to_string(),
+    ]);
+    args
+}
+
+#[cfg(test)]
+#[path = "interval_split_tests.rs"]
+mod interval_split_tests;
+
 pub async fn split_video(
     app_handle: &AppHandle,
     input_path: &str,
     output_dir: &str,
     segment_duration: u32,
+    mode: IntervalSplitMode,
 ) -> Result<SplitResult, String> {
     let overall_start = Instant::now();
     let total_duration = get_video_duration(app_handle, input_path).await?;
@@ -1142,10 +1216,10 @@ pub async fn split_video(
     let output_dir = build_batch_output_dir(output_dir, input_path)?;
 
     let path = std::path::Path::new(input_path);
-    let extension = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("mp4");
+    let extension = match mode {
+        IntervalSplitMode::Copy => path.extension().and_then(|s| s.to_str()).unwrap_or("mp4"),
+        IntervalSplitMode::Precise => "mp4",
+    };
 
     let progress = SplitProgress {
         current_segment: 0,
@@ -1161,26 +1235,12 @@ pub async fn split_video(
         .shell()
         .sidecar("ffmpeg")
         .map_err(|e| format!("Failed to locate ffmpeg sidecar: {}", e))?
-        .args([
-            "-y",
-            "-i",
+        .args(interval_split_args(
             input_path,
-            "-c",
-            "copy",
-            "-map",
-            "0",
-            // Camera metadata tracks (e.g. XAVC rtmd) cannot be remuxed into MP4.
-            "-dn",
-            "-f",
-            "segment",
-            "-segment_time",
-            &segment_duration.to_string(),
-            "-reset_timestamps",
-            "1",
-            "-break_non_keyframes",
-            "0",
             &output_pattern,
-        ])
+            segment_duration,
+            mode,
+        ))
         .output()
         .await
         .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;

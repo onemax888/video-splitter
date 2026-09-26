@@ -13,6 +13,7 @@ import AppendMediaSelector from './components/AppendMediaSelector';
 import LanguageToggle from './components/LanguageToggle';
 import { AppendSource } from './types/append';
 import { SeekMode } from './types/seek';
+import { IntervalSplitMode } from './types/interval';
 import { useVideoSplit } from './hooks/useVideoSplit';
 import { useI18n } from './i18n/I18nProvider';
 import { formatAppError, toAppError } from './utils/appError';
@@ -37,6 +38,7 @@ function App() {
   const [ffmpegStatus, setFfmpegStatus] = useState<FFmpegStatus | null>(null);
   const [isCheckingFfmpeg, setIsCheckingFfmpeg] = useState(false);
   const [splitMode, setSplitMode] = useState<'interval' | 'ranges'>('ranges');
+  const [intervalMode, setIntervalMode] = useState<IntervalSplitMode>('copy');
   const [timeRanges, setTimeRanges] = useState<TimeRange[]>([]);
   const [introSource, setIntroSource] = useState<AppendSource | null>(null);
   const [outroSource, setOutroSource] = useState<AppendSource | null>(null);
@@ -115,7 +117,7 @@ function App() {
     const effectiveSeekMode: SeekMode = hasAppend ? 'fast' : seekMode;
 
     if (splitMode === 'interval') {
-      await splitVideo(selectedFile, outputDir, segmentDuration, intro, outro);
+      await splitVideo(selectedFile, outputDir, segmentDuration, intro, outro, intervalMode);
     } else {
       await splitVideoByRanges(
         selectedFile,
@@ -416,13 +418,38 @@ function App() {
               disabled={isProcessing}
             />
             {splitMode === 'interval' ? (
-              <DurationInput
-                value={segmentDuration}
-                onChange={setSegmentDuration}
-                unit={durationUnit}
-                onUnitChange={setDurationUnit}
-                disabled={isProcessing}
-              />
+              <div className="space-y-4">
+                <DurationInput
+                  value={segmentDuration}
+                  onChange={setSegmentDuration}
+                  unit={durationUnit}
+                  onUnitChange={setDurationUnit}
+                  disabled={isProcessing}
+                />
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-4">
+                    <label htmlFor="interval-mode" className="text-sm font-medium text-slate-600 dark:text-slate-300 w-24">
+                      {t('interval.modeLabel')}
+                    </label>
+                    <select
+                      id="interval-mode"
+                      value={hasAppendSources ? 'precise' : intervalMode}
+                      onChange={(event) => setIntervalMode(event.target.value as IntervalSplitMode)}
+                      disabled={isProcessing || hasAppendSources}
+                      aria-describedby="interval-mode-description"
+                      className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white disabled:opacity-50"
+                    >
+                      <option value="copy">{t('interval.copy')}</option>
+                      <option value="precise">{t('interval.precise')}</option>
+                    </select>
+                  </div>
+                  <p id="interval-mode-description" className="text-xs text-slate-500 dark:text-slate-400 pl-28">
+                    {hasAppendSources
+                      ? t('interval.appendDesc')
+                      : t(intervalMode === 'precise' ? 'interval.preciseDesc' : 'interval.copyDesc')}
+                  </p>
+                </div>
+              </div>
             ) : (
               selectedFile && (
                 <TimeRangeEditor
