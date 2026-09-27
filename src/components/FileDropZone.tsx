@@ -12,6 +12,8 @@ interface FileDropZoneProps {
         duration: number;
     } | null;
     disabled?: boolean;
+    multiple?: boolean;
+    onFilesSelect?: (paths: string[]) => void;
 }
 
 interface DragDropPayload {
@@ -24,6 +26,8 @@ const FileDropZone = ({
     selectedFile,
     videoInfo,
     disabled = false,
+    multiple = false,
+    onFilesSelect,
 }: FileDropZoneProps) => {
     const { t } = useI18n();
     const [isDragging, setIsDragging] = useState(false);
@@ -34,7 +38,9 @@ const FileDropZone = ({
             if (disabled) return;
 
             const paths = event.payload.paths;
-            if (paths && paths.length > 0) {
+            if (multiple && onFilesSelect) {
+                onFilesSelect(paths);
+            } else if (paths && paths.length > 0) {
                 // Get the first file and check if it's a video
                 const filePath = paths[0];
                 const ext = filePath.split('.').pop()?.toLowerCase();
@@ -62,13 +68,13 @@ const FileDropZone = ({
             unlistenEnter.then(fn => fn());
             unlistenLeave.then(fn => fn());
         };
-    }, [disabled, onFileSelect]);
+    }, [disabled, onFileSelect, multiple, onFilesSelect]);
 
     const handleClick = async () => {
         if (disabled) return;
 
         const selected = await open({
-            multiple: false,
+            multiple,
             filters: [
                 {
                     name: t('fileDropZone.filterName'),
@@ -77,7 +83,9 @@ const FileDropZone = ({
             ],
         });
 
-        if (selected && typeof selected === 'string') {
+        if (multiple && onFilesSelect && selected) {
+            onFilesSelect(Array.isArray(selected) ? selected : [selected]);
+        } else if (selected && typeof selected === 'string') {
             onFileSelect(selected);
         }
     };
@@ -85,6 +93,11 @@ const FileDropZone = ({
     return (
         <div className="w-full">
             <div
+                role="button"
+                tabIndex={disabled ? -1 : 0}
+                aria-disabled={disabled}
+                aria-label={t(multiple ? 'batch.drop' : 'fileDropZone.clickSelect')}
+                onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); handleClick(); } }}
                 onClick={handleClick}
                 className={`
           relative w-full p-8 rounded-2xl border-2 border-dashed
@@ -123,7 +136,7 @@ const FileDropZone = ({
                             </div>
                             <div className="text-center">
                                 <p className="text-lg font-medium text-slate-700 dark:text-slate-200">
-                                    {t('fileDropZone.dragHere')}
+                                    {t(multiple ? 'batch.drop' : 'fileDropZone.dragHere')}
                                 </p>
                                 <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                                     {t('fileDropZone.clickSelect')}

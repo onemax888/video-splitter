@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import BatchSplitPanel from './components/BatchSplitPanel';
+import IntervalModeSelector from './components/IntervalModeSelector';
 import FileDropZone from './components/FileDropZone';
 import DurationInput from './components/DurationInput';
 import OutputSelector from './components/OutputSelector';
@@ -30,6 +32,8 @@ interface FFmpegStatus {
 
 function App() {
   const { t } = useI18n();
+  const [view, setView] = useState<'single' | 'batch'>('single');
+  const [batchBusy, setBatchBusy] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [segmentDuration, setSegmentDuration] = useState(300); // 5 minutes default
   const [durationUnit, setDurationUnit] = useState<'seconds' | 'minutes'>('seconds');
@@ -263,6 +267,14 @@ function App() {
 
       {/* Main Content */}
       <main className="flex-1 max-w-2xl mx-auto w-full space-y-6">
+        <div className="flex gap-2" role="group" aria-label={t('batch.mode')}>
+          {(['single', 'batch'] as const).map(mode => <button key={mode} disabled={isProcessing || batchBusy}
+            onClick={() => setView(mode)} aria-pressed={view === mode}
+            className={`flex-1 rounded-lg py-2 text-sm font-medium disabled:opacity-50 ${view === mode ? 'bg-primary-600 text-white' : 'glass'}`}>
+            {t(`batch.${mode}`)}
+          </button>)}
+        </div>
+        {view === 'batch' ? <BatchSplitPanel onBusyChange={setBatchBusy} /> : <>
         {/* File Drop Zone */}
         <FileDropZone
           onFileSelect={handleFileSelect}
@@ -426,29 +438,7 @@ function App() {
                   onUnitChange={setDurationUnit}
                   disabled={isProcessing}
                 />
-                <div className="space-y-2">
-                  <div className="flex items-center space-x-4">
-                    <label htmlFor="interval-mode" className="text-sm font-medium text-slate-600 dark:text-slate-300 w-24">
-                      {t('interval.modeLabel')}
-                    </label>
-                    <select
-                      id="interval-mode"
-                      value={hasAppendSources ? 'precise' : intervalMode}
-                      onChange={(event) => setIntervalMode(event.target.value as IntervalSplitMode)}
-                      disabled={isProcessing || hasAppendSources}
-                      aria-describedby="interval-mode-description"
-                      className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-900 dark:text-white disabled:opacity-50"
-                    >
-                      <option value="copy">{t('interval.copy')}</option>
-                      <option value="precise">{t('interval.precise')}</option>
-                    </select>
-                  </div>
-                  <p id="interval-mode-description" className="text-xs text-slate-500 dark:text-slate-400 pl-28">
-                    {hasAppendSources
-                      ? t('interval.appendDesc')
-                      : t(intervalMode === 'precise' ? 'interval.preciseDesc' : 'interval.copyDesc')}
-                  </p>
-                </div>
+                <IntervalModeSelector value={intervalMode} onChange={setIntervalMode} hasAppend={hasAppendSources} disabled={isProcessing} />
               </div>
             ) : (
               selectedFile && (
@@ -572,6 +562,7 @@ function App() {
             }
           </p>
         )}
+        </>}
       </main>
 
       {/* Footer */}

@@ -1,3 +1,4 @@
+use crate::process::{run_command, ProcessControl};
 use chrono::{Duration as ChronoDuration, Local};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -375,6 +376,7 @@ async fn normalize_append_source(
     app_handle: &AppHandle,
     source: &AppendSource,
     params: &MediaParams,
+    control: Option<&ProcessControl>,
 ) -> Result<String, String> {
     let source_path = Path::new(&source.path);
     if !source_path.exists() {
@@ -392,6 +394,9 @@ async fn normalize_append_source(
     if output_path.exists() {
         return Ok(output_path.to_string_lossy().to_string());
     }
+
+    let final_path = output_path;
+    let output_path = cache_dir.join("normalizing.mp4");
 
     let fps = if params.fps.is_finite() && params.fps > 0.0 {
         params.fps
@@ -518,21 +523,15 @@ async fn normalize_append_source(
         }
     }
 
-    let output = app_handle
-        .shell()
-        .sidecar("ffmpeg")
-        .map_err(|e| format!("Failed to locate ffmpeg sidecar: {}", e))?
-        .args(args)
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("FFmpeg failed: {}", stderr));
+    let command = app_handle.shell().sidecar("ffmpeg")
+        .map_err(|e| format!("Failed to locate ffmpeg sidecar: {}", e))?.args(args);
+    if let Err(error) = run_command(command, control).await {
+        let _ = std::fs::remove_file(&output_path);
+        return Err(error);
     }
+    std::fs::rename(&output_path, &final_path).map_err(|e| e.to_string())?;
 
-    Ok(output_path.to_string_lossy().to_string())
+    Ok(final_path.to_string_lossy().to_string())
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -884,7 +883,7 @@ fn build_concat_filter(pairs: &[(String, String)]) -> String {
     filter
 }
 
-fn sanitize_segment_label(label: &str) -> Option<String> {
+pub(crate) fn sanitize_segment_label(label: &str) -> Option<String> {
     let trimmed = label.trim();
     if trimmed.is_empty() {
         return None;
@@ -936,6 +935,20 @@ pub async fn split_video_with_append(
     intro: Option<AppendSource>,
     outro: Option<AppendSource>,
 ) -> Result<SplitResult, String> {
+    let output_dir = build_batch_output_dir(output_dir, input_path)?;
+    split_video_with_append_into(app_handle, input_path, &output_dir, segment_duration, ranges, intro, outro, None).await
+}
+
+pub(crate) async fn split_video_with_append_into(
+    app_handle: &AppHandle,
+    input_path: &str,
+    output_dir: &str,
+    segment_duration: u32,
+    ranges: Option<Vec<TimeRange>>,
+    intro: Option<AppendSource>,
+    outro: Option<AppendSource>,
+    control: Option<&ProcessControl>,
+) -> Result<SplitResult, String> {
     let overall_start = Instant::now();
     let ranges = if let Some(ranges) = ranges {
         ranges
@@ -943,7 +956,6 @@ pub async fn split_video_with_append(
         let total_duration = get_video_duration(app_handle, input_path).await?;
         build_ranges_from_interval(total_duration, segment_duration)
     };
-    let output_dir = build_batch_output_dir(output_dir, input_path)?;
 
     if ranges.is_empty() {
         return Err("没有可用的切分范围".to_string());
@@ -951,11 +963,11 @@ pub async fn split_video_with_append(
 
     let params = probe_media_params(app_handle, input_path).await?;
     let intro_path = match intro.as_ref() {
-        Some(source) => Some(normalize_append_source(app_handle, source, &params).await?),
+        Some(source) => Some(normalize_append_source(app_handle, source, &params, control).await?),
         None => None,
     };
     let outro_path = match outro.as_ref() {
-        Some(source) => Some(normalize_append_source(app_handle, source, &params).await?),
+        Some(source) => Some(normalize_append_source(app_handle, source, &params, control).await?),
         None => None,
     };
 
@@ -981,7 +993,7 @@ pub async fn split_video_with_append(
             percentage: ((i as f64) / (total_segments as f64)) * 100.0,
             current_file: format!("正在切分片段 {}/{}...", i + 1, total_segments),
         };
-        let _ = app_handle.emit("split-progress", &progress);
+        emit_split_progress(app_handle, control, &progress);
 
         let output_file = build_segment_filename(
             &output_dir,
@@ -1090,19 +1102,9 @@ pub async fn split_video_with_append(
             output_file.clone(),
         ]);
 
-        let output = app_handle
-            .shell()
-            .sidecar("ffmpeg")
-            .map_err(|e| format!("Failed to locate ffmpeg sidecar: {}", e))?
-            .args(args)
-            .output()
-            .await
-            .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("FFmpeg failed on segment {}: {}", i + 1, stderr));
-        }
+        let command = app_handle.shell().sidecar("ffmpeg")
+            .map_err(|e| format!("Failed to locate ffmpeg sidecar: {}", e))?.args(args);
+        run_command(command, control).await?;
 
         if std::path::Path::new(&output_file).exists() {
             output_files.push(output_file.clone());
@@ -1119,7 +1121,7 @@ pub async fn split_video_with_append(
         percentage: 100.0,
         current_file: "完成".to_string(),
     };
-    let _ = app_handle.emit("split-progress", &final_progress);
+    emit_split_progress(app_handle, control, &final_progress);
 
     Ok(SplitResult {
         success: true,
@@ -1138,7 +1140,7 @@ pub enum IntervalSplitMode {
     Precise,
 }
 
-fn interval_split_args(
+pub(crate) fn interval_split_args(
     input_path: &str,
     output_pattern: &str,
     segment_duration: u32,
@@ -1210,10 +1212,21 @@ pub async fn split_video(
     segment_duration: u32,
     mode: IntervalSplitMode,
 ) -> Result<SplitResult, String> {
+    let output_dir = build_batch_output_dir(output_dir, input_path)?;
+    split_video_into(app_handle, input_path, &output_dir, segment_duration, mode, None).await
+}
+
+pub(crate) async fn split_video_into(
+    app_handle: &AppHandle,
+    input_path: &str,
+    output_dir: &str,
+    segment_duration: u32,
+    mode: IntervalSplitMode,
+    control: Option<&ProcessControl>,
+) -> Result<SplitResult, String> {
     let overall_start = Instant::now();
     let total_duration = get_video_duration(app_handle, input_path).await?;
     let total_segments = (total_duration / segment_duration as f64).ceil() as u32;
-    let output_dir = build_batch_output_dir(output_dir, input_path)?;
 
     let path = std::path::Path::new(input_path);
     let extension = match mode {
@@ -1227,38 +1240,16 @@ pub async fn split_video(
         percentage: 0.0,
         current_file: "正在切分...".to_string(),
     };
-    let _ = app_handle.emit("split-progress", &progress);
+    emit_split_progress(app_handle, control, &progress);
 
     let output_pattern = format!("{}/%03d.{}", output_dir, extension);
 
-    let output = app_handle
-        .shell()
-        .sidecar("ffmpeg")
+    let command = app_handle.shell().sidecar("ffmpeg")
         .map_err(|e| format!("Failed to locate ffmpeg sidecar: {}", e))?
-        .args(interval_split_args(
-            input_path,
-            &output_pattern,
-            segment_duration,
-            mode,
-        ))
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+        .args(interval_split_args(input_path, &output_pattern, segment_duration, mode));
+    run_command(command, control).await?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("FFmpeg failed: {}", stderr));
-    }
-
-    let mut output_files = Vec::new();
-    for i in 0..total_segments + 5 {
-        let file_path = format!("{}/{:03}.{}", output_dir, i, extension);
-        if std::path::Path::new(&file_path).exists() {
-            output_files.push(file_path);
-        } else {
-            break;
-        }
-    }
+    let output_files = collect_interval_outputs(Path::new(output_dir), extension)?;
 
     if output_files.is_empty() {
         return Err("FFmpeg 未生成任何片段".to_string());
@@ -1278,7 +1269,7 @@ pub async fn split_video(
         percentage: 100.0,
         current_file: "完成".to_string(),
     };
-    let _ = app_handle.emit("split-progress", &final_progress);
+    emit_split_progress(app_handle, control, &final_progress);
 
     Ok(SplitResult {
         success: true,
@@ -1470,4 +1461,25 @@ pub async fn split_video_by_ranges(
         total_elapsed_ms: elapsed_ms(overall_start),
         segment_stats,
     })
+}
+
+fn emit_split_progress(app: &AppHandle, control: Option<&ProcessControl>, progress: &SplitProgress) {
+    if let Some(control) = control {
+        let _ = app.emit("batch-segment-progress", serde_json::json!({"job_id": control.job_id, "progress": progress}));
+    } else {
+        let _ = app.emit("split-progress", progress);
+    }
+}
+
+pub(crate) fn collect_interval_outputs(dir: &Path, extension: &str) -> Result<Vec<String>, String> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        if path.extension().and_then(|s| s.to_str()) != Some(extension) { continue; }
+        if let Some(index) = path.file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse::<usize>().ok()) {
+            if path.is_file() { files.push((index, path.to_string_lossy().into_owned())); }
+        }
+    }
+    files.sort_by_key(|(index, _)| *index);
+    Ok(files.into_iter().map(|(_, file)| file).collect())
 }
