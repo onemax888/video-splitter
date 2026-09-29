@@ -86,13 +86,13 @@ jobs:
             高效的视频切片工具，支持多种视频格式。
             
             ### 下载
-            - **macOS (Apple Silicon)**: `Video_Clipping_*_aarch64.dmg`
-            - **macOS (Intel)**: `Video_Clipping_*_x64.dmg`
-            - **Windows**: `Video_Clipping_*_x64-setup.exe` 或 `.msi`
-            - **Linux**: `Video_Clipping_*_amd64.deb` 或 `.AppImage`
+            - **macOS (Apple Silicon)**: `*_aarch64.dmg`
+            - **macOS (Intel)**: `*_x64.dmg`
+            - **Windows**: `*_x64-setup.exe` 或 `.msi`
+            - **Linux**: `*_amd64.deb`、`.AppImage` 或 `.rpm`
             
             ### 系统要求
-            - 需要安装 FFmpeg
+            - 安装包内置 FFmpeg 和 ffprobe；Linux 包管理器可能额外安装声明的系统依赖。
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
