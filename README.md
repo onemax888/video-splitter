@@ -20,9 +20,9 @@
 
 ## 下载与安装
 
-[GitHub 仓库](https://github.com/qindongliang/video-splitter) · [Releases](https://github.com/qindongliang/video-splitter/releases) · [飞书使用教程](https://my.feishu.cn/wiki/Wx6QwgTzCiyqPYkW0XgcguFqnmL)
+[GitHub 仓库](https://github.com/onemax888/video-splitter) · [Releases](https://github.com/onemax888/video-splitter/releases) · [飞书使用教程](https://my.feishu.cn/wiki/Wx6QwgTzCiyqPYkW0XgcguFqnmL)
 
-**当前状态（2026-09-29）**：仓库仍为私有，计划后续开源；`v0.2.7` 的以下分发文件已生成，但 Release 仍是草稿。没有仓库权限时可能无法访问这些链接；公开下载需等待仓库及对应 Release 正式公开。
+**[下载最新版本](https://github.com/onemax888/video-splitter/releases/latest)**：仓库已公开，`v0.2.7` 已于 2026-09-29 正式发布。Windows、macOS 和 Linux 安装包均可免费下载，无需登录 GitHub，也无需自行编译。打开下载页，在 **Assets** 中选择下表对应的安装包；`Source code` 是源码压缩包，不是安装包。
 
 | 平台 | 安装包 | 安装方式 |
 | --- | --- | --- |
@@ -129,7 +129,7 @@
 - Linux：WebKitGTK 4.1、AppIndicator、librsvg、patchelf 等；Ubuntu 依赖列表见 [发布工作流](.github/workflows/release.yml)。
 
 ```sh
-git clone https://github.com/qindongliang/video-splitter.git
+git clone https://github.com/onemax888/video-splitter.git
 cd video-splitter
 npm ci
 
@@ -169,10 +169,10 @@ cargo test --manifest-path src-tauri/Cargo.toml -- --ignored
 - **v0.2.7**：新增批量视频切分、两种输出布局、有序编号、CSV 清单、停止批次及失败重试。
 - **v0.2.6**：新增固定间隔精确切分；修复相机数据轨兼容和切分失败判定。
 
-完整标签与记录见 [Tags](https://github.com/qindongliang/video-splitter/tags)。
+完整标签与记录见 [Tags](https://github.com/onemax888/video-splitter/tags)。
 
 ## 许可与反馈
 
-本项目源码采用 [MIT License](LICENSE)。FFmpeg 和其他第三方组件适用各自的许可证，MIT 声明不替代它们的许可。仓库访问范围和软件许可证是两件事，公开时间以项目实际设置为准。
+本项目已开源，源码采用 [MIT License](LICENSE)。FFmpeg 和其他第三方组件适用各自的许可证，MIT 声明不替代它们的许可。
 
-有访问权限时，可通过 [GitHub Issues](https://github.com/qindongliang/video-splitter/issues) 反馈问题或提交 Pull Request。请附系统与架构、应用版本、素材格式、处理模式和完整错误信息；视频样本应先移除私人内容。
+欢迎通过 [GitHub Issues](https://github.com/onemax888/video-splitter/issues) 反馈问题或提交 Pull Request。请附系统与架构、应用版本、素材格式、处理模式和完整错误信息；视频样本应先移除私人内容。
